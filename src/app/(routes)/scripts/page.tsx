@@ -41,7 +41,7 @@ import {
 import { useToast } from '@/hooks/use-toast'
 import { executeQuery } from '@/lib/api'
 import SqlEditor from '@/components/sql/SqlEditor'
-import { useSession } from '@/components/sql/SessionContext'
+import { useSession } from '@/components/session/SessionContext'
 // 本地存储键
 const SCRIPTS_STORAGE_KEY = 'sqlserver-scripts'
 const GROUPS_STORAGE_KEY = 'sqlserver-script-groups'

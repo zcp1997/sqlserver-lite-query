@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from 'react'
-import { useSession } from '@/components/sql/SessionContext'
+import { useSession } from '@/components/session/SessionContext'
 import { Button } from '@/components/ui/button'
 import {
   Select,

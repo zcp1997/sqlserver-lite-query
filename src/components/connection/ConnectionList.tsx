@@ -34,7 +34,7 @@ import {
   SearchIcon
 } from 'lucide-react'
 import ConnectionDialog from './ConnectionDialog'
-import { useSession } from '@/components/sql/SessionContext'
+import { useSession } from '@/components/session/SessionContext'
 
 interface ConnectionListProps {
   onConnect: (connection: ConnectionConfig) => void

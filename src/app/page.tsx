@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { QueryResult, DatabaseObjectType } from '@/types/database'
-import SessionSelector from '@/components/sql/SessionSelector'
+import SessionSelector from '@/components/session/SessionSelector'
 import SqlEditor from '@/components/sql/SqlEditor'
 import ResultPanel from '@/components/sql/ResultPanel'
 import { executeQuery, executeNonQuery, isQueryStatement, search_stored_procedures } from '@/lib/api'
@@ -41,7 +41,7 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog"
 import { Input } from '@/components/ui/input'
-import { useSession } from '@/components/sql/SessionContext'
+import { useSession } from '@/components/session/SessionContext'
 
 export default function SqlWorkbenchPage() {
   const { activeSession } = useSession()
@@ -193,7 +193,7 @@ export default function SqlWorkbenchPage() {
         className="flex-1 overflow-hidden"
       >
         {/* SQL编辑器面板 */}
-        <ResizablePanel defaultSize={50} minSize={20}>
+        <ResizablePanel defaultSize={30} minSize={20}>
           <div className="flex flex-col h-full max-h-full overflow-hidden">
             <div className="flex justify-between items-center p-2 border-b flex-shrink-0">
               {/* <div className="text-sm font-medium">
@@ -323,7 +323,7 @@ export default function SqlWorkbenchPage() {
                 </div>
               ) : queryResult && queryResult.result_sets && queryResult.result_sets.length > 0 && queryResult.result_sets[0]?.affected_rows !== undefined ? (
                 <div className="text-sm">
-                  影响了 {queryResult.result_sets[0].affected_rows} 行
+                  影响了 {queryResult.result_sets.reduce((sum, resultSet) => sum + (resultSet.affected_rows ?? 0), 0)} 行
                 </div>
               ) : queryResult && queryResult.result_sets && queryResult.result_sets.length > 0 ? (
                 <div className="text-sm">
@@ -338,6 +338,7 @@ export default function SqlWorkbenchPage() {
           </Tabs>
         </ResizablePanel>
       </ResizablePanelGroup>
+      
 
       {/* 数据库对象对话框 */}
       <Dialog open={dbObjectDialogOpen} onOpenChange={setDbObjectDialogOpen}>

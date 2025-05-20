@@ -12,7 +12,7 @@ import "./globals.css"
 import "./themes.css"
 import { useEffect, useState } from "react"
 import { Loader } from "lucide-react"
-import { SessionProvider } from '@/components/sql/SessionContext'
+import { SessionProvider } from '@/components/session/SessionContext'
 
 export default function RootLayout({
   children,
