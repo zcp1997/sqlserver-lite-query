@@ -12,6 +12,7 @@ import "./globals.css"
 import "./themes.css"
 import { useEffect, useState } from "react"
 import { Loader } from "lucide-react"
+import { SessionProvider } from '@/components/sql/SessionContext'
 
 export default function RootLayout({
   children,
@@ -50,7 +51,11 @@ export default function RootLayout({
           <SiteHeader />
           <div className="flex flex-1">
             <AppSidebar />
-            <SidebarInset>{children}</SidebarInset>
+            <SidebarInset>
+              <SessionProvider>
+                {children}
+              </SessionProvider>
+            </SidebarInset>
           </div>
         </SidebarProvider>
       </main>

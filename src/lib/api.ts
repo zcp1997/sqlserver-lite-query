@@ -4,7 +4,8 @@ import {
   ConnectionResponse, 
   QueryRequest, 
   QueryResult,
-  ResultSet
+  ResultSet,
+  ProcedureQueryRequest
 } from '@/types/database'
 
 // 测试数据库连接
@@ -53,16 +54,6 @@ export async function executeQuery(session_id: string, sql: string): Promise<Que
 
     console.log('executeQuery 结果:', result)
     
-    // 兼容处理：如果后端尚未更新为多结果集结构，进行适配
-    if (!result.result_sets && 'columns' in result) {
-      // 旧结构，转换为新结构
-      const oldResult = result as unknown as ResultSet
-      return {
-        result_sets: [oldResult],
-        error: oldResult.error
-      }
-    }
-    
     return result
   } catch (error) {
     console.error('查询执行失败:', error)
@@ -87,16 +78,6 @@ export async function executeNonQuery(session_id: string, sql: string): Promise<
     const result = await invoke<QueryResult>('execute_non_query', { request })
 
     console.log('executeNonQuery 结果:', result)
-    
-    // 兼容处理：如果后端尚未更新为多结果集结构，进行适配
-    if (!result.result_sets && 'columns' in result) {
-      // 旧结构，转换为新结构
-      const oldResult = result as unknown as ResultSet
-      return {
-        result_sets: [oldResult],
-        error: oldResult.error
-      }
-    }
     
     return result
   } catch (error) {
@@ -123,3 +104,28 @@ export function isQueryStatement(sql: string): boolean {
     trimmedSql.startsWith('execute sp_')
   )
 } 
+
+// 关键字查询存储过程
+export async function search_stored_procedures(session_id: string, keyword: string): Promise<QueryResult> {
+  try {
+    const request: ProcedureQueryRequest = {
+      session_id,
+      keyword
+    }
+    const result = await invoke<QueryResult>('execute_procedure_query', { request })
+
+    console.log('execute_procedure_query 结果:', result)
+    
+    return result
+  } catch (error) {
+    console.error('执行失败:', error)
+    return {
+      result_sets: [{
+        columns: [],
+        rows: [],
+        error: `执行失败: ${error}`
+      }],
+      error: `执行失败: ${error}`
+    }
+  }
+}

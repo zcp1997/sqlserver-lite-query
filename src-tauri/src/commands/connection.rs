@@ -1,4 +1,4 @@
-use crate::database::{ConnectionConfig, create_connection, execute_query as db_execute_query, execute_non_query as db_execute_non_query, QueryResult};
+use crate::database::{ConnectionConfig, create_connection, execute_query as db_execute_query, execute_non_query as db_execute_non_query, QueryResult, search_stored_procedures, StoredProcedureInfo};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tokio::sync::Mutex;
@@ -22,6 +22,14 @@ pub struct ConnectionResponse {
 pub struct QueryRequest {
     pub session_id: String,
     pub sql: String,
+}
+
+
+// 查询请求
+#[derive(Debug, Deserialize)]
+pub struct ProcedureQueryRequest {
+    pub session_id: String,
+    pub keyword: String,
 }
 
 // 测试连接
@@ -112,6 +120,34 @@ pub async fn execute_non_query(request: QueryRequest) -> Result<QueryResult, Str
         match db_execute_non_query(client, &request.sql).await {
             Ok(result) => {
                 println!("非查询操作执行成功");
+                Ok(result)
+            },
+            Err(err) => {
+                let error_msg = format!("执行错误: {}", err);
+                println!("{}", error_msg);
+                Err(error_msg)
+            },
+        }
+    } else {
+        let error_msg = format!("会话不存在或已过期，请重新连接，会话ID: {}", request.session_id);
+        println!("{}", error_msg);
+        Err(error_msg)
+    }
+} 
+
+// 执行关键字查询存储过程
+#[tauri::command]
+pub async fn execute_procedure_query(request: ProcedureQueryRequest) -> Result<Vec<StoredProcedureInfo>, String> {
+    println!("执行存储过程查询，会话ID: {}", request.session_id);
+    println!("keyword: {}", request.keyword);
+    
+    let mut connections = ACTIVE_CONNECTIONS.lock().await;
+    
+    if let Some(client) = connections.get_mut(&request.session_id) {
+        println!("找到会话，开始执行执行存储过程查询");
+        match search_stored_procedures(client, &request.keyword).await {
+            Ok(result) => {
+                println!("执行存储过程查询成功");
                 Ok(result)
             },
             Err(err) => {

@@ -20,11 +20,6 @@ const data = {
       icon: DatabaseIcon,
     },
     {
-      title: "连接管理",
-      url: "/connections",
-      icon: WifiIcon,
-    },
-    {
       title: "脚本管理",
       url: "/scripts",
       icon: FileTextIcon,

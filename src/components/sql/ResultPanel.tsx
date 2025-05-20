@@ -3,9 +3,9 @@
 import { useState, useRef, useEffect, KeyboardEvent } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { 
-  DownloadIcon, 
-  CopyIcon, 
+import {
+  DownloadIcon,
+  CopyIcon,
   SearchIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
@@ -34,7 +34,7 @@ export default function ResultPanel({ result, isLoading = false }: ResultPanelPr
   // 列高亮
   const [highlightedColumn, setHighlightedColumn] = useState<string | null>(null)
   // 选中的单元格
-  const [selectedCells, setSelectedCells] = useState<{rowIndex: number, colIndex: number}[]>([])
+  const [selectedCells, setSelectedCells] = useState<{ rowIndex: number, colIndex: number }[]>([])
   // 字体大小
   const [fontSize, setFontSize] = useState(14) // 默认字体大小
 
@@ -52,7 +52,7 @@ export default function ResultPanel({ result, isLoading = false }: ResultPanelPr
 
   // 获取当前活动的结果集
   const activeResultSet = result.result_sets[activeResultIndex] || result.result_sets[0]
-  
+
   // 确保activeResultSet.rows存在
   if (!activeResultSet.rows) {
     return (
@@ -61,36 +61,35 @@ export default function ResultPanel({ result, isLoading = false }: ResultPanelPr
       </div>
     )
   }
-  
+
   // 过滤行
   const filteredRows = activeResultSet.rows.filter((row) => {
     if (!searchTerm.trim()) return true
-    
+
     // 在所有列中搜索
     return Object.values(row).some((value) => {
       if (value === null) return false
       return String(value).toLowerCase().includes(searchTerm.toLowerCase())
     })
   })
-  
+
   // 分页
   const totalPages = Math.ceil(filteredRows.length / pageSize)
   const paginatedRows = filteredRows.slice((page - 1) * pageSize, page * pageSize)
-  
+
   // 确保activeResultSet.columns存在
   const columns = activeResultSet.columns || []
-  
+
   // 复制单元格内容并显示提示
   const copyToClipboard = async (content: string) => {
     try {
       await navigator.clipboard.writeText(content)
       toast.success('内容已复制')
-      console.log('内容已复制:', content)
     } catch (err) {
       console.error('复制失败:', err)
     }
   }
-  
+
   // 复制当前行
   const copyRow = async (row: Record<string, any>) => {
     try {
@@ -101,7 +100,7 @@ export default function ResultPanel({ result, isLoading = false }: ResultPanelPr
       console.error('复制行失败:', err)
     }
   }
-  
+
   // 导出CSV
   const exportToCSV = () => {
     try {
@@ -115,16 +114,16 @@ export default function ResultPanel({ result, isLoading = false }: ResultPanelPr
           return val;
         }).join(',')
       });
-      
+
       const csvContent = [headers, ...csvRows].join('\n');
       const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
-      
+
       const link = document.createElement('a');
       link.href = url;
       link.setAttribute('download', `query_result_${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.csv`);
       link.click();
-      
+
       URL.revokeObjectURL(url);
       toast.success('CSV文件已导出');
     } catch (err) {
@@ -132,35 +131,35 @@ export default function ResultPanel({ result, isLoading = false }: ResultPanelPr
       toast.error('导出CSV失败');
     }
   }
-  
+
   // 翻页
   const goToPage = (newPage: number) => {
     if (newPage < 1 || newPage > totalPages) return
     setPage(newPage)
   }
-  
+
   // 格式化单元格值显示
   const formatCellValue = (value: any): string => {
     if (value === null || value === undefined) return 'NULL'
     if (typeof value === 'object') return JSON.stringify(value)
     return String(value)
   }
-  
+
   // 计算每列的最佳宽度
   const calculateColumnWidths = () => {
     // 默认最小宽度
     const minWidth = 120;
     // 默认最大宽度，增大最大宽度以便更好地显示长文本
     const maxWidth = 500;
-    
+
     // 如果没有列，返回空数组
     if (!columns.length) return [];
-    
+
     // 计算每列的内容宽度
     return columns.map((column) => {
       // 计算标题宽度 (每个字符约12px)
       let width = column.length * 12;
-      
+
       // 检查前15行数据中的值长度
       const rowsToCheck = Math.min(15, activeResultSet.rows.length);
       for (let i = 0; i < rowsToCheck; i++) {
@@ -179,14 +178,14 @@ export default function ResultPanel({ result, isLoading = false }: ResultPanelPr
         }
         width = Math.max(width, valueWidth);
       }
-      
+
       // 确保在范围内并添加额外的内边距，为复制图标留出空间
       return Math.max(minWidth, Math.min(maxWidth, width + 30));
     });
   };
-  
+
   const columnWidths = calculateColumnWidths();
-  
+
   // 定位到指定列
   const scrollToColumn = (columnName: string) => {
     const colIndex = columns.findIndex(col => col.toLowerCase() === columnName.toLowerCase());
@@ -194,9 +193,9 @@ export default function ResultPanel({ result, isLoading = false }: ResultPanelPr
       toast.error(`未找到列: ${columnName}`);
       return;
     }
-    
+
     setHighlightedColumn(columnName);
-    
+
     // 滚动到该列
     if (tableRef.current) {
       const table = tableRef.current;
@@ -206,7 +205,7 @@ export default function ResultPanel({ result, isLoading = false }: ResultPanelPr
       }
     }
   };
-  
+
   // 处理单元格点击，支持多选
   const handleCellClick = (rowIndex: number, colIndex: number, event: React.MouseEvent) => {
     // 如果按住Ctrl键，添加到选择
@@ -216,22 +215,22 @@ export default function ResultPanel({ result, isLoading = false }: ResultPanelPr
       // 否则只选择当前单元格
       setSelectedCells([{ rowIndex, colIndex }]);
     }
-    
+
     // 复制单元格内容
     const column = columns[colIndex];
     const value = paginatedRows[rowIndex][column];
     copyToClipboard(String(value ?? ''));
   };
-  
+
   // 处理键盘导航
   const handleKeyDown = (event: KeyboardEvent<HTMLTableElement>) => {
     if (selectedCells.length === 0) return;
-    
+
     // 获取当前选中的单元格
     const current = selectedCells[selectedCells.length - 1];
     let newRow = current.rowIndex;
     let newCol = current.colIndex;
-    
+
     switch (event.key) {
       case 'ArrowUp':
         newRow = Math.max(0, current.rowIndex - 1);
@@ -248,19 +247,19 @@ export default function ResultPanel({ result, isLoading = false }: ResultPanelPr
       default:
         return; // 其他键不处理
     }
-    
+
     // 如果位置改变，更新选中单元格
     if (newRow !== current.rowIndex || newCol !== current.colIndex) {
       event.preventDefault();
       setSelectedCells([{ rowIndex: newRow, colIndex: newCol }]);
     }
   };
-  
+
   // 调整字体大小
   const changeFontSize = (delta: number) => {
     setFontSize(prev => Math.max(10, Math.min(20, prev + delta)));
   };
-  
+
   return (
     <div className="flex flex-col h-full w-full max-h-full">
       {/* 工具栏 */}
@@ -275,7 +274,7 @@ export default function ResultPanel({ result, isLoading = false }: ResultPanelPr
               onChange={(e) => setSearchTerm(e.target.value)}
             />
           </div>
-          
+
           {/* 列定位 */}
           <div className="relative">
             <Input
@@ -288,12 +287,12 @@ export default function ResultPanel({ result, isLoading = false }: ResultPanelPr
               }}
             />
           </div>
-          
+
           <span className="text-sm text-muted-foreground">
             {activeResultSet.rows.length} 行 {activeResultSet.columns.length} 列
           </span>
         </div>
-        
+
         <div className="flex items-center gap-2">
           {/* 字体大小调整 */}
           <div className="flex items-center gap-1">
@@ -315,7 +314,7 @@ export default function ResultPanel({ result, isLoading = false }: ResultPanelPr
               <ArrowUpIcon className="h-4 w-4" />
             </Button>
           </div>
-          
+
           <Button
             variant="outline"
             size="sm"
@@ -340,12 +339,12 @@ export default function ResultPanel({ result, isLoading = false }: ResultPanelPr
           </Button>
         </div>
       </div>
-      
+
       {/* 多结果集选项卡 */}
       {result.result_sets.length > 1 && (
         <div className="border-b px-2">
-          <Tabs 
-            value={String(activeResultIndex)} 
+          <Tabs
+            value={String(activeResultIndex)}
             onValueChange={(value) => setActiveResultIndex(parseInt(value, 10))}
           >
             <TabsList>
@@ -358,14 +357,14 @@ export default function ResultPanel({ result, isLoading = false }: ResultPanelPr
           </Tabs>
         </div>
       )}
-      
+
       {/* 表格容器 */}
       <div className="flex-1 relative overflow-hidden">
         {/* 表格结构 - 使用单一表格来确保对齐，修复滚动条问题 */}
         <div className="absolute inset-0 overflow-auto">
           {/* 通过额外的容器确保滚动条不会干扰布局 */}
           <div className={isFullWidth ? "w-full" : "min-w-full inline-block"}>
-            <table 
+            <table
               ref={tableRef}
               className={isFullWidth ? "w-full table-fixed border-collapse" : "w-auto border-collapse"}
               onKeyDown={handleKeyDown}
@@ -376,12 +375,11 @@ export default function ResultPanel({ result, isLoading = false }: ResultPanelPr
               <thead className="sticky top-0 z-10 bg-background">
                 <tr className="border-b">
                   {columns.map((column, index) => (
-                    <th 
-                      key={column} 
+                    <th
+                      key={column}
                       data-column={column}
-                      className={`h-10 px-4 text-left align-middle font-medium whitespace-nowrap ${
-                        highlightedColumn === column ? 'bg-primary/20' : 'text-muted-foreground'
-                      }`}
+                      className={`h-10 px-4 text-left align-middle font-medium whitespace-nowrap ${highlightedColumn === column ? 'bg-primary/20' : 'text-muted-foreground'
+                        }`}
                       style={isFullWidth ? {} : { width: `${columnWidths[index]}px` }}
                     >
                       {column}
@@ -389,7 +387,7 @@ export default function ResultPanel({ result, isLoading = false }: ResultPanelPr
                   ))}
                 </tr>
               </thead>
-              
+
               {/* 表格主体 */}
               <tbody>
                 {paginatedRows.map((row, rowIndex) => (
@@ -402,15 +400,14 @@ export default function ResultPanel({ result, isLoading = false }: ResultPanelPr
                       const isSelected = selectedCells.some(
                         cell => cell.rowIndex === rowIndex && cell.colIndex === colIndex
                       );
-                      
+
                       return (
                         <td
                           key={`${rowIndex}-${column}`}
                           onClick={(e) => handleCellClick(rowIndex, colIndex, e)}
-                          className={`px-4 py-2 align-middle hover:bg-primary/5 cursor-pointer group relative ${
-                            isSelected ? 'bg-primary/20' : ''
-                          } ${highlightedColumn === column ? 'bg-primary/10' : ''}`}
-                          style={isFullWidth ? {} : { 
+                          className={`px-4 py-2 align-middle hover:bg-primary/5 cursor-pointer group relative ${isSelected ? 'bg-primary/20' : ''
+                            } ${highlightedColumn === column ? 'bg-primary/10' : ''}`}
+                          style={isFullWidth ? {} : {
                             width: `${columnWidths[colIndex]}px`,
                             maxWidth: `${columnWidths[colIndex]}px`,
                             overflow: 'hidden',
@@ -431,7 +428,7 @@ export default function ResultPanel({ result, isLoading = false }: ResultPanelPr
               </tbody>
             </table>
           </div>
-          
+
           {filteredRows.length === 0 && (
             <div className="flex items-center justify-center h-full p-8 text-muted-foreground">
               {searchTerm ? '没有匹配的结果' : '没有数据'}
@@ -439,14 +436,14 @@ export default function ResultPanel({ result, isLoading = false }: ResultPanelPr
           )}
         </div>
       </div>
-      
+
       {/* 分页控制 */}
       {totalPages > 1 && (
         <div className="flex items-center justify-between p-2 border-t">
           <div className="text-sm text-muted-foreground">
             第 {page} 页，共 {totalPages} 页
           </div>
-          
+
           <div className="flex items-center gap-1">
             <Button
               variant="outline"
@@ -467,7 +464,7 @@ export default function ResultPanel({ result, isLoading = false }: ResultPanelPr
             >
               <ChevronLeftIcon className="h-4 w-4" />
             </Button>
-            
+
             <Input
               className="h-8 w-12 text-center"
               value={page}
@@ -478,7 +475,7 @@ export default function ResultPanel({ result, isLoading = false }: ResultPanelPr
                 }
               }}
             />
-            
+
             <Button
               variant="outline"
               size="icon"

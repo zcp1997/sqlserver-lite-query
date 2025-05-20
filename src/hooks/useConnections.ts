@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react'
 import { v4 as uuidv4 } from 'uuid'
 import { ConnectionConfig } from '@/types/database'
 import { testConnection } from '@/lib/api'
-
 const STORAGE_KEY = 'sqlserver-connections'
 
 export function useConnections() {
@@ -27,7 +26,6 @@ export function useConnections() {
 
   // 保存连接到本地存储
   const saveConnections = (conns: ConnectionConfig[]) => {
-    console.log('saveConnections conns', conns)
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(conns))
     } catch (err) {
@@ -43,7 +41,6 @@ export function useConnections() {
       id: uuidv4()
     }
 
-    console.log('newConnection id', newConnection.id)
     const updatedConnections = [...connections, newConnection]
     setConnections(updatedConnections)
     saveConnections(updatedConnections)
@@ -53,11 +50,11 @@ export function useConnections() {
   // 更新连接
   const updateConnection = (connection: ConnectionConfig) => {
     if (!connection.id) return null
-    
-    const updatedConnections = connections.map(conn => 
+
+    const updatedConnections = connections.map(conn =>
       conn.id === connection.id ? connection : conn
     )
-    
+
     setConnections(updatedConnections)
     saveConnections(updatedConnections)
     return connection
@@ -79,7 +76,7 @@ export function useConnections() {
         message: '未找到连接配置'
       }
     }
-    
+
     return await testConnection(connection)
   }
 

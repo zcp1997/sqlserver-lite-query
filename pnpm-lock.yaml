@@ -167,6 +167,9 @@ importers:
       lucide-react:
         specifier: 0.474.0
         version: 0.474.0(react@19.1.0)
+      monaco-editor:
+        specifier: ^0.52.2
+        version: 0.52.2
       next:
         specifier: 15.3.0
         version: 15.3.0(@babel/core@7.26.10)(react-dom@19.1.0(react@19.1.0))(react@19.1.0)

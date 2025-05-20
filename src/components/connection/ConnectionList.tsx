@@ -1,8 +1,8 @@
 import { useState } from 'react'
-import { 
-  Card, 
-  CardContent, 
-  CardHeader, 
+import {
+  Card,
+  CardContent,
+  CardHeader,
   CardTitle,
   CardDescription
 } from '@/components/ui/card'
@@ -24,72 +24,78 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { ConnectionConfig } from '@/types/database'
 import { useConnections } from '@/hooks/useConnections'
-import { 
-  DatabaseIcon, 
-  MoreVerticalIcon, 
-  EditIcon, 
-  TrashIcon, 
-  PlayIcon, 
-  PlusIcon, 
+import {
+  DatabaseIcon,
+  MoreVerticalIcon,
+  EditIcon,
+  TrashIcon,
+  PlayIcon,
+  PlusIcon,
   SearchIcon
 } from 'lucide-react'
 import ConnectionDialog from './ConnectionDialog'
+import { useSession } from '@/components/sql/SessionContext'
 
 interface ConnectionListProps {
   onConnect: (connection: ConnectionConfig) => void
 }
 
 export default function ConnectionList({ onConnect }: ConnectionListProps) {
-  const { 
-    connections, 
-    addConnection, 
-    updateConnection, 
-    deleteConnection 
+  const {
+    connections,
+    addConnection,
+    updateConnection,
+    deleteConnection
   } = useConnections()
-  
+  const { createSession, closeSessionByConnectionId } = useSession()
+
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [editingConnection, setEditingConnection] = useState<ConnectionConfig | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
-  
-  // 处理连接添加/更新
-  const handleSaveConnection = (connection: ConnectionConfig) => {
-    console.log('handleSaveConnection connection', connection)
 
+  // Handle connection add/update
+  const handleSaveConnection = (connection: ConnectionConfig) => {
     if (connection.id) {
-      updateConnection(connection)
+      closeSessionByConnectionId(connection.id)
+      const updatedConnection = updateConnection(connection)
+      if (updatedConnection) {
+        createSession(updatedConnection)
+      }
     } else {
-      addConnection(connection)
+      const newConnection = addConnection(connection)
+      createSession(newConnection)
     }
     setIsDialogOpen(false)
     setEditingConnection(null)
   }
-  
-  // 处理打开编辑对话框
+
+  // Handle edit dialog open
   const handleEdit = (connection: ConnectionConfig) => {
     setEditingConnection(connection)
     setIsDialogOpen(true)
   }
-  
-  // 处理删除连接
+
+  // Handle connection deletion
   const handleDelete = (id: string) => {
     if (confirm('确定要删除此连接吗？')) {
       deleteConnection(id)
+      closeSessionByConnectionId(id)
     }
   }
-  
-  // 处理添加新连接
+
+  // Handle adding new connection
   const handleAddNew = () => {
     setEditingConnection(null)
     setIsDialogOpen(true)
   }
-  
-  // 筛选连接
-  const filteredConnections = connections.filter(conn => 
+
+  // Filter connections by search query
+  const filteredConnections = connections.filter(conn =>
     conn.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     conn.server.toLowerCase().includes(searchQuery.toLowerCase()) ||
     conn.database.toLowerCase().includes(searchQuery.toLowerCase())
   )
-  
+
   return (
     <Card className="w-full">
       <CardHeader>
@@ -100,7 +106,7 @@ export default function ConnectionList({ onConnect }: ConnectionListProps) {
         <CardDescription>
           管理您的SQL Server连接
         </CardDescription>
-        
+
         <div className="flex items-center gap-2 pt-2">
           <div className="relative flex-1">
             <SearchIcon className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
@@ -117,7 +123,7 @@ export default function ConnectionList({ onConnect }: ConnectionListProps) {
           </Button>
         </div>
       </CardHeader>
-      
+
       <CardContent>
         {filteredConnections.length > 0 ? (
           <Table>
@@ -132,23 +138,20 @@ export default function ConnectionList({ onConnect }: ConnectionListProps) {
             <TableBody>
               {filteredConnections.map((connection) => (
                 <TableRow key={connection.id}>
-                  <TableCell>{connection.name}</TableCell>
+                  <TableCell className="font-medium">{connection.name}</TableCell>
                   <TableCell>{connection.server}</TableCell>
                   <TableCell>{connection.database}</TableCell>
                   <TableCell>
                     <div className="flex items-center gap-1">
-                      <Button 
-                        variant="ghost" 
+                      <Button
+                        variant="ghost"
                         size="icon"
-                        onClick={() => {
-                          console.log('Connect button clicked', connection)
-                          onConnect(connection)
-                        }}
+                        onClick={() => onConnect(connection)}
                         title="连接"
                       >
                         <PlayIcon className="h-4 w-4" />
                       </Button>
-                      
+
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                           <Button variant="ghost" size="icon">
@@ -160,7 +163,7 @@ export default function ConnectionList({ onConnect }: ConnectionListProps) {
                             <EditIcon className="mr-2 h-4 w-4" />
                             编辑
                           </DropdownMenuItem>
-                          <DropdownMenuItem 
+                          <DropdownMenuItem
                             onClick={() => connection.id && handleDelete(connection.id)}
                             className="text-destructive"
                           >
@@ -191,7 +194,7 @@ export default function ConnectionList({ onConnect }: ConnectionListProps) {
           </div>
         )}
       </CardContent>
-      
+
       <ConnectionDialog
         open={isDialogOpen}
         onOpenChange={setIsDialogOpen}
@@ -200,4 +203,4 @@ export default function ConnectionList({ onConnect }: ConnectionListProps) {
       />
     </Card>
   )
-} 
+}

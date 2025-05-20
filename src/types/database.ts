@@ -25,6 +25,12 @@ export interface QueryRequest {
   sql: string
 }
 
+// 查询请求
+export interface ProcedureQueryRequest {
+  session_id: string
+  keyword: string
+}
+
 // 单个结果集
 export interface ResultSet {
   columns: string[]
@@ -42,7 +48,7 @@ export interface QueryResult {
 // 查询会话
 export interface QuerySession {
   id: string
-  connectionId: string
+  connectionId?: string
   connectionName: string
   server: string
   database: string
@@ -80,3 +86,10 @@ export enum DatabaseObjectType {
   View = 'VIEW',
   Index = 'INDEX'
 } 
+
+export interface StoredProcedureInfo {
+  name: String,
+  schema_name: String,
+  full_name: String,
+  definition: String,
+}

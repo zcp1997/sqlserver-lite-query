@@ -39,10 +39,9 @@ import {
   SaveIcon,
 } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
-import { useQuerySessions } from '@/hooks/useQuerySessions'
 import { executeQuery } from '@/lib/api'
 import SqlEditor from '@/components/sql/SqlEditor'
-
+import { useSession } from '@/components/sql/SessionContext'
 // 本地存储键
 const SCRIPTS_STORAGE_KEY = 'sqlserver-scripts'
 const GROUPS_STORAGE_KEY = 'sqlserver-script-groups'
@@ -76,7 +75,7 @@ export default function ScriptsPage() {
   const [isResultDialogOpen, setIsResultDialogOpen] = useState(false)
   
   const { toast } = useToast()
-  const { activeSessionId } = useQuerySessions()
+  const { activeSession } = useSession()
   
   // 加载脚本和分组
   useEffect(() => {
@@ -211,7 +210,7 @@ export default function ScriptsPage() {
   
   // 执行脚本
   const executeScript = async (script: SqlScript) => {
-    if (!activeSessionId) {
+    if (!activeSession?.id) {
       toast.error('没有活动的数据库会话')
       return
     }
@@ -220,13 +219,13 @@ export default function ScriptsPage() {
     setExecutionResult(null)
     
     try {
-      const result = await executeQuery(activeSessionId, script.content)
+      const result = await executeQuery(activeSession.id, script.content)
       
       if (result.error) {
         setExecutionResult(`执行失败: ${result.error}`)
       } else {
-        const totalRows = result.resultSets.reduce((sum, rs) => sum + rs.rows.length, 0)
-        setExecutionResult(`执行成功，返回 ${result.resultSets.length} 个结果集，共 ${totalRows} 行数据`)
+        const totalRows = result.result_sets.reduce((sum, rs) => sum + rs.rows.length, 0)
+        setExecutionResult(`执行成功，返回 ${result.result_sets.length} 个结果集，共 ${totalRows} 行数据`)
       }
     } catch (err) {
       setExecutionResult(`执行出错: ${err}`)
@@ -353,7 +352,7 @@ export default function ScriptsPage() {
                             variant="ghost" 
                             size="icon"
                             onClick={() => executeScript(script)}
-                            disabled={!activeSessionId || isExecuting}
+                            disabled={!activeSession?.id || isExecuting}
                             title="执行"
                           >
                             <PlayIcon className="h-4 w-4" />
