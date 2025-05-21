@@ -442,12 +442,12 @@ export default function ScriptsPage() {
               <label htmlFor="content" className="text-right pt-2">
                 SQL内容
               </label>
-              <div className="col-span-3 h-full min-h-[300px] border rounded-md overflow-hidden">
+              {/* <div className="col-span-3 h-full min-h-[300px] border rounded-md overflow-hidden">
                 <SqlEditor
                   value={currentScript.content}
                   onChange={(value) => setCurrentScript({...currentScript, content: value})}
                 />
-              </div>
+              </div> */}
             </div>
           </div>
           

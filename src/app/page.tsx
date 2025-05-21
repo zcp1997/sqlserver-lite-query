@@ -21,7 +21,8 @@ import {
   SearchIcon,
   RefreshCcwIcon,
   ActivityIcon,
-  ChevronDownIcon
+  ChevronDownIcon,
+  TrashIcon
 } from 'lucide-react'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
@@ -193,7 +194,7 @@ export default function SqlWorkbenchPage() {
         className="flex-1 overflow-hidden"
       >
         {/* SQL编辑器面板 */}
-        <ResizablePanel defaultSize={30} minSize={20}>
+        <ResizablePanel defaultSize={40} minSize={20}>
           <div className="flex flex-col h-full max-h-full overflow-hidden">
             <div className="flex justify-between items-center p-2 border-b flex-shrink-0">
               {/* <div className="text-sm font-medium">
@@ -269,17 +270,36 @@ export default function SqlWorkbenchPage() {
                   <PlayIcon className="h-4 w-4 mr-1" />
                   {isExecuting ? '执行中...' : '执行'}
                 </Button>
+
+                {/* 清空按钮 */}
+                <Button
+                  className="bg-red-500 hover:bg-red-600 text-white"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setSqlQuery('')
+                    setQueryResult(null)
+                    setError(null)
+                    localStorage.clear();
+                    alert('所有配置已清空')
+                    location.href = '/';
+                  }}
+                >
+                  <TrashIcon className="h-4 w-4 mr-1" />
+                  清空所有数据
+                </Button>
               </div>
             </div>
 
-            <div className="flex-1 p-1 overflow-hidden">
+            {activeSession && activeSession.id && <div className="flex-1 p-1 overflow-hidden">
               <SqlEditor
                 value={sqlQuery}
                 onChange={setSqlQuery}
                 executeQuery={executeCurrentQuery}
                 readOnly={isExecuting}
+                activeSessionId={activeSession.id}
               />
-            </div>
+            </div>}
           </div>
         </ResizablePanel>
 
@@ -287,7 +307,7 @@ export default function SqlWorkbenchPage() {
         <ResizableHandle />
 
         {/* 结果面板 */}
-        <ResizablePanel defaultSize={50} minSize={20}>
+        <ResizablePanel defaultSize={60} minSize={20}>
           <Tabs value={activeTab} onValueChange={setActiveTab} className="h-full flex flex-col max-h-full overflow-hidden">
             <div className="border-b px-3 flex-shrink-0">
               <TabsList>
@@ -297,31 +317,27 @@ export default function SqlWorkbenchPage() {
             </div>
 
             <TabsContent value="result" className="flex-1 p-0 overflow-hidden">
-              {queryResult && (
-                <ResultPanel result={queryResult} isLoading={isExecuting} />
-              )}
-
-              {!queryResult && !error && !isExecuting && (
-                <div className="h-full flex items-center justify-center text-muted-foreground">
-                  执行查询以查看结果
+              {error ? (
+                <div className="h-full flex items-center justify-center text-destructive px-4">
+                  <AlertCircleIcon className="h-5 w-5 mr-2 mt-0.5 flex-shrink-0" />
+                  <pre className="text-sm whitespace-pre-wrap">{error}</pre>
                 </div>
-              )}
-
-              {isExecuting && !queryResult && (
+              ) : queryResult ? (
+                <ResultPanel result={queryResult} isLoading={isExecuting} />
+              ) : isExecuting ? (
                 <div className="h-full flex items-center justify-center">
                   <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" />
                   <span className="ml-3">执行中...</span>
+                </div>
+              ) : (
+                <div className="h-full flex items-center justify-center text-muted-foreground">
+                  执行查询以查看结果
                 </div>
               )}
             </TabsContent>
 
             <TabsContent value="messages" className="flex-1 p-4 overflow-auto">
-              {error ? (
-                <div className="flex items-start text-destructive">
-                  <AlertCircleIcon className="h-5 w-5 mr-2 mt-0.5 flex-shrink-0" />
-                  <pre className="text-sm whitespace-pre-wrap">{error}</pre>
-                </div>
-              ) : queryResult && queryResult.result_sets && queryResult.result_sets.length > 0 && queryResult.result_sets[0]?.affected_rows !== undefined ? (
+              {queryResult && queryResult.result_sets && queryResult.result_sets.length > 0 && queryResult.result_sets[0]?.affected_rows !== undefined ? (
                 <div className="text-sm">
                   影响了 {queryResult.result_sets.reduce((sum, resultSet) => sum + (resultSet.affected_rows ?? 0), 0)} 行
                 </div>
@@ -338,7 +354,7 @@ export default function SqlWorkbenchPage() {
           </Tabs>
         </ResizablePanel>
       </ResizablePanelGroup>
-      
+
 
       {/* 数据库对象对话框 */}
       <Dialog open={dbObjectDialogOpen} onOpenChange={setDbObjectDialogOpen}>

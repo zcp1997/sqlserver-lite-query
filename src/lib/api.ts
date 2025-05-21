@@ -5,7 +5,11 @@ import {
   QueryRequest, 
   QueryResult,
   ResultSet,
-  ProcedureQueryRequest
+  ProcedureQueryRequest,
+  TableQueryRequest,
+  ColumnQueryRequest,
+  ColumnInfo,
+  TableInfo
 } from '@/types/database'
 
 // 测试数据库连接
@@ -127,5 +131,44 @@ export async function search_stored_procedures(session_id: string, keyword: stri
       }],
       error: `执行失败: ${error}`
     }
+  }
+}
+
+// 关键字查询表
+export async function search_table_names(session_id: string, keyword: string): Promise<TableInfo[]> {
+  console.log('调用Tauri get_all_tables命令')
+  try {
+    const request: TableQueryRequest = {
+      session_id,
+      keyword
+    }
+    const result = await invoke<TableInfo[]>('get_all_tables', { request });
+
+    console.log('get_all_tables 结果:', result)
+    
+    return result
+  } catch (error) {
+    console.error('执行失败:', error)
+    return []
+  }
+}
+
+
+// 关键字查询列
+export async function search_column_details(session_id: string, table_name: string, schema_name?: string): Promise<ColumnInfo[]> {
+  try {
+    const request: ColumnQueryRequest = {
+      session_id,
+      table_name,
+      schema_name
+    }
+    const result = await invoke<ColumnInfo[]>('get_columns_for_table', { request })
+
+    console.log('get_all_tables 结果:', result)
+    
+    return result
+  } catch (error) {
+    console.error('执行失败:', error)
+    return []
   }
 }

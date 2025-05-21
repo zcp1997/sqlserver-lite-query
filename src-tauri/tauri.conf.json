@@ -15,6 +15,7 @@
         "title": "sqlserver轻量编辑器",
         "fullscreen": false,
         "resizable": true,
+        "devtools": true,
         "width": 1800,
         "height": 900
       }

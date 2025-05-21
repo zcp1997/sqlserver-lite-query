@@ -78,6 +78,19 @@ pub struct ProcedureExecutionInfo {
     pub execute_snippet: String,
 }
 
+#[derive(serde::Serialize, Debug)]
+pub struct TableInfo {
+    name: String,
+    schema: Option<String>, // Optional: if you want to show schema.table
+}
+
+#[derive(serde::Serialize, Debug)]
+pub struct ColumnInfo {
+    name: String,
+    data_type: String,
+    table_name: String,
+}
+
 // 辅助函数：从Row中提取值并转换为JSON
 fn get_value_as_json(row: &Row, index: usize) -> Result<serde_json::Value, String> {
     // 尝试各种不同的类型，根据SQL Server常见数据类型
@@ -398,5 +411,164 @@ pub async fn search_stored_procedures(
         }
     }
 
+    Ok(results)
+}
+
+
+pub async fn search_tables(
+    client: &mut Client<Compat<TcpStream>>,
+    keyword: &str,
+) -> Result<Vec<TableInfo>, DatabaseError> {
+    let mut results = Vec::new();
+    
+    // 优化的表查询 - 搜索表名称和Schema名称
+    let table_query = r#"
+        WITH TableMatches AS (
+            -- 按表名称搜索
+            SELECT DISTINCT
+                t.object_id,
+                SCHEMA_NAME(t.schema_id) as schema_name,
+                t.name as table_name,
+                1 as match_priority
+            FROM sys.tables t
+            WHERE t.name LIKE @P1
+            
+            UNION
+            
+            -- 按Schema名称搜索
+            SELECT DISTINCT
+                t.object_id,
+                SCHEMA_NAME(t.schema_id) as schema_name,
+                t.name as table_name,
+                2 as match_priority
+            FROM sys.tables t
+            WHERE SCHEMA_NAME(t.schema_id) LIKE @P1
+        )
+        SELECT
+            tm.schema_name,
+            tm.table_name
+        FROM TableMatches tm
+        ORDER BY tm.match_priority, tm.schema_name, tm.table_name
+    "#;
+    
+    let search_pattern = if keyword.is_empty() {
+        "%".to_string() // 如果关键字为空，返回所有表
+    } else {
+        format!("%{}%", keyword)
+    };
+    
+    // 执行查询并处理结果流
+    let mut stream = client
+        .query(table_query, &[&search_pattern])
+        .await
+        .map_err(|e| DatabaseError::QueryError(format!("查询表失败: {}", e)))?;
+    
+    while let Ok(Some(query_item)) = stream.try_next().await {
+        // 从QueryItem中提取单行
+        if let Some(row) = query_item.into_row() {
+            let schema_name: &str = row.get("schema_name").unwrap_or("");
+            let table_name: &str = row.get("table_name").unwrap_or("");
+            
+            let table_info = TableInfo {
+                name: table_name.to_string(),
+                schema: Some(schema_name.to_string()),
+            };
+            
+            results.push(table_info);
+        }
+    }
+    
+    Ok(results)
+}
+
+pub async fn search_table_columns(
+    client: &mut Client<Compat<TcpStream>>,
+    table_name: &str,
+    schema_name: Option<&str>,
+) -> Result<Vec<ColumnInfo>, DatabaseError> {
+    let mut results = Vec::new();
+    
+    // 查询指定表的所有列
+    let column_query = match schema_name {
+        // 如果提供了schema名称，则使用完全限定表名
+        Some(schema) => r#"
+            SELECT 
+                c.name as column_name,
+                t.name as data_type,
+                CASE WHEN t.name IN ('varchar', 'nvarchar', 'char', 'nchar') AND c.max_length <> -1
+                    THEN t.name + '(' + 
+                         CASE WHEN t.name IN ('nvarchar', 'nchar') 
+                              THEN CAST(c.max_length/2 AS VARCHAR) 
+                              ELSE CAST(c.max_length AS VARCHAR) 
+                         END + ')'
+                    WHEN t.name IN ('varchar', 'nvarchar') AND c.max_length = -1
+                    THEN t.name + '(MAX)'
+                    WHEN t.name IN ('decimal', 'numeric')
+                    THEN t.name + '(' + CAST(c.precision AS VARCHAR) + ',' + CAST(c.scale AS VARCHAR) + ')'
+                    ELSE t.name
+                END as detailed_type,
+                tbl.name as table_name
+            FROM sys.columns c
+            JOIN sys.tables tbl ON c.object_id = tbl.object_id
+            JOIN sys.schemas s ON tbl.schema_id = s.schema_id
+            JOIN sys.types t ON c.user_type_id = t.user_type_id
+            WHERE tbl.name = @P1 AND s.name = @P2
+            ORDER BY c.column_id
+        "#,
+        // 如果没有提供schema名称，则只按表名查询
+        None => r#"
+            SELECT 
+                c.name as column_name,
+                t.name as data_type,
+                CASE WHEN t.name IN ('varchar', 'nvarchar', 'char', 'nchar') AND c.max_length <> -1
+                    THEN t.name + '(' + 
+                         CASE WHEN t.name IN ('nvarchar', 'nchar') 
+                              THEN CAST(c.max_length/2 AS VARCHAR) 
+                              ELSE CAST(c.max_length AS VARCHAR) 
+                         END + ')'
+                    WHEN t.name IN ('varchar', 'nvarchar') AND c.max_length = -1
+                    THEN t.name + '(MAX)'
+                    WHEN t.name IN ('decimal', 'numeric')
+                    THEN t.name + '(' + CAST(c.precision AS VARCHAR) + ',' + CAST(c.scale AS VARCHAR) + ')'
+                    ELSE t.name
+                END as detailed_type,
+                tbl.name as table_name
+            FROM sys.columns c
+            JOIN sys.tables tbl ON c.object_id = tbl.object_id
+            JOIN sys.types t ON c.user_type_id = t.user_type_id
+            WHERE tbl.name = @P1
+            ORDER BY c.column_id
+        "#
+    };
+    
+    // 执行查询并处理结果流
+    let mut stream = match schema_name {
+        Some(schema) => client
+            .query(column_query, &[&table_name, &schema])
+            .await
+            .map_err(|e| DatabaseError::QueryError(format!("查询列失败: {}", e)))?,
+        None => client
+            .query(column_query, &[&table_name])
+            .await
+            .map_err(|e| DatabaseError::QueryError(format!("查询列失败: {}", e)))?,
+    };
+    
+    while let Ok(Some(query_item)) = stream.try_next().await {
+        // 从QueryItem中提取单行
+        if let Some(row) = query_item.into_row() {
+            let column_name: &str = row.get("column_name").unwrap_or("");
+            let data_type: &str = row.get("detailed_type").unwrap_or(""); // 使用详细类型
+            let table_name: &str = row.get("table_name").unwrap_or("");
+            
+            let column_info = ColumnInfo {
+                name: column_name.to_string(),
+                data_type: data_type.to_string(),
+                table_name: table_name.to_string(),
+            };
+            
+            results.push(column_info);
+        }
+    }
+    
     Ok(results)
 }

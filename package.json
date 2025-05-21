@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "next dev -p 3456 --turbopack",
+    "dev": "next dev -p 3456",
     "build": "next build",
     "start": "next start -p 3456",
     "lint": "next lint",
@@ -104,6 +104,7 @@
     "@vitejs/plugin-react": "^4.3.4",
     "eslint": "^9",
     "eslint-config-next": "15.2.0-canary.33",
+    "monaco-editor-webpack-plugin": "^7.1.0",
     "prettier": "^3.4.2",
     "prettier-plugin-tailwindcss": "^0.6.11",
     "tailwindcss": "^4.1.3",

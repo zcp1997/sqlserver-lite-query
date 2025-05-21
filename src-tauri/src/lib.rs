@@ -13,6 +13,8 @@ pub fn run() {
             commands::connection::execute_query,
             commands::connection::execute_non_query,
             commands::connection::execute_procedure_query,
+            commands::connection::get_all_tables,
+            commands::connection::get_columns_for_table,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

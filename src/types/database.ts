@@ -30,6 +30,29 @@ export interface ProcedureQueryRequest {
   session_id: string
   keyword: string
 }
+// 查询请求
+export interface TableQueryRequest {
+  session_id: string
+  keyword: string
+}
+
+export interface TableInfo {
+  name: string
+  schema?: string
+}
+
+// 查询请求
+export interface ColumnQueryRequest {
+  session_id: string
+  table_name: string
+  schema_name?: string
+}
+
+export interface ColumnInfo {
+  name: string
+  data_type: string
+  table_name: String,
+}
 
 // 单个结果集
 export interface ResultSet {

@@ -315,7 +315,7 @@ export default function ResultPanel({ result, isLoading = false }: ResultPanelPr
             </Button>
           </div>
 
-          <Button
+          {/* <Button
             variant="outline"
             size="sm"
             onClick={() => setIsFullWidth(!isFullWidth)}
@@ -327,7 +327,7 @@ export default function ResultPanel({ result, isLoading = false }: ResultPanelPr
               <MaximizeIcon className="h-4 w-4 mr-1" />
             )}
             {isFullWidth ? "自动列宽" : "拉伸表格"}
-          </Button>
+          </Button> */}
           <Button
             variant="outline"
             size="sm"
