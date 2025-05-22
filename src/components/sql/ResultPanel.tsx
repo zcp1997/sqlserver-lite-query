@@ -442,6 +442,7 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, isLoading = false }) 
                       rowHeight={35}
                       headerHeight={40}
                       quickFilterText={quickFilterText}
+                      cacheQuickFilter={true}
                     />
                   </div>
                 ) : (
