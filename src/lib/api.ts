@@ -12,6 +12,10 @@ import {
   StoredProcedureInfo
 } from '@/types/database'
 
+import {useToast} from '@/hooks/use-toast'
+
+const {toast} = useToast();
+
 // 测试数据库连接
 export async function testConnection(config: ConnectionConfig): Promise<ConnectionResponse> {
   console.log('testConnection 调用参数:', config)
@@ -58,7 +62,9 @@ export async function executeQuery(session_id: string, sql: string): Promise<Que
 
     console.log('executeQuery 结果:', result)
 
+    toast.success("查询完成", { description: "数据库语句执行成功", duration: 2000 })
     return result
+
   } catch (error) {
     console.error('查询执行失败:', error)
     return {

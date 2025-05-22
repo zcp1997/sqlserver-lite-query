@@ -3,8 +3,7 @@
 import * as React from "react"
 import {
   DatabaseIcon,
-  WifiIcon,
-  StickyNoteIcon,
+  LogsIcon,
   FileTextIcon
 } from "lucide-react"
 
@@ -20,9 +19,14 @@ const data = {
       icon: DatabaseIcon,
     },
     {
-      title: "脚本管理",
+      title: "SQL脚本管理",
       url: "/scripts",
       icon: FileTextIcon,
+    },
+    {
+      title: "SQL查询记录",
+      url: "/logs",
+      icon: LogsIcon,
     },
   ],
   navSecondary: [

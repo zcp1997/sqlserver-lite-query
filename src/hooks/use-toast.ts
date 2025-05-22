@@ -34,8 +34,8 @@ export const toast = {
     return sonnerToast.success(message, {
       className: GeistSans.className,
       style: { 
-        backgroundColor: "var(--background)",
-        color: "var(--success-dark)",
+        backgroundColor: "#ffffff",
+        color: "oklch(75% 0.18 135)",
       },
       ...options,
     })
@@ -50,8 +50,8 @@ export const toast = {
     return sonnerToast.error(message, {
       className: GeistSans.className,
       style: { 
-        backgroundColor: "var(--error-light)",
-        color: "var(--error-dark)",
+        backgroundColor: "#ffffff",
+        color: "oklch(70.4% 0.191 22.216)",
       },
       ...options,
     })
@@ -66,8 +66,8 @@ export const toast = {
     return sonnerToast.warning(message, {
       className: GeistSans.className,
       style: { 
-        backgroundColor: "var(--warning-light)",
-        color: "var(--warning-dark)",
+        backgroundColor: "#ffffff",
+        color: "oklch(70.7% 0.165 254.624)",
       },
       ...options,
     })
@@ -82,8 +82,8 @@ export const toast = {
     return sonnerToast.info(message, {
       className: GeistSans.className,
       style: { 
-        backgroundColor: "var(--info-light)",
-        color: "var(--info-dark)",
+        backgroundColor: "#ffffff",
+        color: "#000000",
       },
       ...options,
     })

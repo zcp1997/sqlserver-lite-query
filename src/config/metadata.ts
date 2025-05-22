@@ -7,12 +7,16 @@ export const pageMetadata: Record<string, Metadata> = {
     description: "系统仪表盘页面",
   },
   connections: {
-    title: "sql连接管理",
-    description: "sql连接管理页面"
+    title: "SQL连接管理",
+    description: "SQL连接管理页面"
   },
-  sqlscripts: {
-    title: "sql脚本管理",
-    description: "sql脚本管理"
+  scripts: {
+    title: "SQL脚本管理",
+    description: "SQL脚本管理"
+  },
+  logs: {
+    title: "SQL执行记录",
+    description: "SQL执行记录"
   },
 }
 

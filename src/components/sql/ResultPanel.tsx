@@ -9,12 +9,17 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { useToast } from '@/hooks/use-toast'
 import {
   TableIcon,
   DownloadIcon,
   InfoIcon,
   CheckCircleIcon,
-  DatabaseIcon
+  DatabaseIcon,
+  CopyIcon,
+  XIcon,
+  SearchIcon
 } from 'lucide-react'
 
 ModuleRegistry.registerModules([AllCommunityModule]);
@@ -33,8 +38,12 @@ interface GridTabData {
 }
 
 const ResultPanel: React.FC<ResultPanelProps> = ({ result, isLoading = false }) => {
+  const { toast } = useToast();
   const [activeTab, setActiveTab] = useState<string>('')
   const [gridApis, setGridApis] = useState<Record<string, GridApi>>({})
+  const [quickFilterText, setQuickFilterText] = useState('');
+  const [columnSearchText, setColumnSearchText] = useState('');
+  const [highlightedColumn, setHighlightedColumn] = useState<string | null>(null);
 
   // 处理结果集数据，生成标签页数据
   const tabsData = useMemo<GridTabData[]>(() => {
@@ -66,6 +75,49 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, isLoading = false }) 
     }
   }, [tabsData, activeTab])
 
+  // 查找并高亮列
+  const findAndHighlightColumn = useCallback((tabId: string) => {
+    const gridApi = gridApis[tabId];
+    if (!gridApi || !columnSearchText) return false;
+
+    const allColumns = gridApi.getColumns();
+    if (!allColumns) {
+      return false;
+    }
+    const foundColumn = allColumns.find(col =>
+      col.getColDef().headerName?.toLowerCase().includes(columnSearchText.toLowerCase())
+    );
+
+    if (foundColumn) {
+      // 设置高亮列
+      setHighlightedColumn(foundColumn.getColId());
+
+      // 确保列可见
+      gridApi.ensureColumnVisible(foundColumn);
+
+      // 计算列的位置并滚动
+      setTimeout(() => {
+        // 使用setTimeout确保DOM已更新
+        const headerCell = document.querySelector(`.ag-header-cell[col-id="${foundColumn.getColId()}"]`);
+        if (headerCell) {
+          headerCell.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+        }
+      }, 100);
+
+      toast.info('列已找到', { description: `已找到并高亮显示列: ${foundColumn.getColDef().headerName}` })
+
+      // 5秒后取消高亮
+      setTimeout(() => {
+        setHighlightedColumn(null);
+      }, 5000);
+
+      return true;
+    } else {
+      toast.error('未找到列', { description: `没有找到包含 "${columnSearchText}" 的列` })
+    }
+    return false;
+  }, [gridApis, columnSearchText, toast]);
+
   // 生成表格列定义
   const generateColumnDefs = useCallback((resultSet: ResultSet): ColDef[] => {
     if (!resultSet.columns || resultSet.columns.length === 0) {
@@ -80,6 +132,13 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, isLoading = false }) 
       resizable: true,
       minWidth: 120,
       flex: 1,
+      cellStyle: (params) => {
+        // 如果当前列是高亮列，应用高亮样式
+        if (highlightedColumn === column) {
+          return { backgroundColor: 'rgba(25, 118, 210, 0.2)' };
+        }
+        return null;
+      },
       cellRenderer: (params: any) => {
         const value = params.value
         // 处理NULL值
@@ -121,19 +180,38 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, isLoading = false }) 
         // 处理长文本
         if (typeof value === 'string' && value.length > 100) {
           return (
-            <span
-              title={value}
-              style={{ cursor: 'help' }}
-            >
-              {value.substring(0, 100)}...
-            </span>
+            <div className="flex items-center gap-2">
+              <span
+                title={value}
+                style={{ cursor: 'help' }}
+              >
+                {value.substring(0, 100)}...
+              </span>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-6 w-6 p-0"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  navigator.clipboard.writeText(value)
+                    .then(() => {
+                      toast.success('文本已复制');
+                    })
+                    .catch(() => {
+                    });
+                }}
+                title="复制完整内容"
+              >
+                <CopyIcon className="h-4 w-4" />
+              </Button>
+            </div>
           )
         }
 
         return value?.toString() || ''
       }
     }))
-  }, [])
+  }, [highlightedColumn, toast])
 
   // 处理网格准备就绪
   const onGridReady = useCallback((params: GridReadyEvent, tabId: string) => {
@@ -150,8 +228,9 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, isLoading = false }) 
       gridApi.exportDataAsCsv({
         fileName: `query_result_${tabId}.csv`
       })
+      toast.error('导出成功', { description: '数据已导出为CSV文件' })
     }
-  }, [gridApis])
+  }, [gridApis, toast])
 
   // 自适应列宽
   const autoSizeColumns = useCallback((tabId: string) => {
@@ -159,7 +238,7 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, isLoading = false }) 
     if (gridApi) {
       gridApi.sizeColumnsToFit()
     }
-  }, [gridApis])
+  }, [gridApis, toast])
 
   const gridOptions = {
     // other grid options
@@ -237,7 +316,7 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, isLoading = false }) 
             <div className="h-full flex flex-col">
               {/* 工具栏 */}
               <div className="flex-shrink-0 p-3 border-b bg-muted/30">
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between flex-wrap gap-2">
                   <div className="flex items-center gap-4">
                     <div className="flex items-center gap-2">
                       <InfoIcon className="h-4 w-4 text-muted-foreground" />
@@ -257,6 +336,58 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, isLoading = false }) 
                         </span>
                       </div>
                     )}
+
+                    {/* 全局搜索框 */}
+                    <div className="flex items-center gap-2 ml-4">
+                      <div className="relative">
+                        <SearchIcon className="h-4 w-4 absolute left-2 top-1/2 transform -translate-y-1/2 text-muted-foreground" />
+                        <Input
+                          type="text"
+                          placeholder="搜索所有数据..."
+                          className="pl-8 h-8 text-sm"
+                          value={quickFilterText}
+                          onChange={(e) => setQuickFilterText(e.target.value)}
+                        />
+                        {quickFilterText && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setQuickFilterText('')}
+                            className="h-5 w-5 p-0 absolute right-2 top-1/2 transform -translate-y-1/2"
+                          >
+                            <XIcon className="h-3 w-3" />
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* 列查找功能 */}
+                    <div className="flex items-center gap-2 ml-2">
+                      <div className="relative">
+                        <SearchIcon className="h-4 w-4 absolute left-2 top-1/2 transform -translate-y-1/2 text-muted-foreground" />
+                        <Input
+                          type="text"
+                          placeholder="查找列..."
+                          className="pl-8 h-8 text-sm"
+                          value={columnSearchText}
+                          onChange={(e) => setColumnSearchText(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              findAndHighlightColumn(tab.id);
+                            }
+                          }}
+                        />
+                      </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-8"
+                        onClick={() => findAndHighlightColumn(tab.id)}
+                        disabled={!columnSearchText}
+                      >
+                        查找
+                      </Button>
+                    </div>
                   </div>
 
                   <div className="flex items-center gap-2">
@@ -310,6 +441,7 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, isLoading = false }) 
                       suppressRowHoverHighlight={false}
                       rowHeight={35}
                       headerHeight={40}
+                      quickFilterText={quickFilterText}
                     />
                   </div>
                 ) : (

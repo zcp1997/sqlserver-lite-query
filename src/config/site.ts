@@ -1,5 +1,5 @@
 export const siteConfig = {
-  name: "倢科软件 - sqlserver轻量编辑器",
+  name: "sqlserver轻量编辑器",
   url: "https://ui.shadcn.com",
   ogImage: "https://ui.shadcn.com/og.jpg",
 }

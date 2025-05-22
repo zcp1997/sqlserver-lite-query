@@ -354,12 +354,12 @@ export default function SqlWorkbenchPage() {
               size="sm"
             >
               <TrashIcon className="h-4 w-4 mr-1" />
-              清空所有数据
+              清空所有配置和数据
             </Button>
           </DialogTrigger>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>确认清空所有数据</DialogTitle>
+              <DialogTitle>确认清空所有配置和数据</DialogTitle>
               <DialogDescription>
                 此操作将清空所有配置和数据，且无法撤销。你确定要继续吗？
               </DialogDescription>

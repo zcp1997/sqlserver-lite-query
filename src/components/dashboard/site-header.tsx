@@ -46,7 +46,7 @@ export function SiteHeader() {
         <Button
           variant="ghost"
           size="sm"
-          onClick={toggleSidebar}
+          // onClick={toggleSidebar}
           className="gap-2.5 has-[>svg]:px-2"
         >
           <SidebarIcon />
@@ -60,7 +60,7 @@ export function SiteHeader() {
           <BreadcrumbList>
             <BreadcrumbItem>
               <BreadcrumbLink href="/">
-                主页
+                工作台
               </BreadcrumbLink>
             </BreadcrumbItem>
             <BreadcrumbSeparator />

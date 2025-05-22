@@ -39,9 +39,7 @@ import {
   SaveIcon,
 } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
-import { executeQuery } from '@/lib/api'
 import SqlEditor from '@/components/sql/SqlEditor'
-import { useSession } from '@/components/session/SessionContext'
 // 本地存储键
 const SCRIPTS_STORAGE_KEY = 'sqlserver-scripts'
 const GROUPS_STORAGE_KEY = 'sqlserver-script-groups'
@@ -75,7 +73,6 @@ export default function ScriptsPage() {
   const [isResultDialogOpen, setIsResultDialogOpen] = useState(false)
   
   const { toast } = useToast()
-  const { activeSession } = useSession()
   
   // 加载脚本和分组
   useEffect(() => {
@@ -208,33 +205,6 @@ export default function ScriptsPage() {
     setIsAddingScript(true)
   }
   
-  // 执行脚本
-  const executeScript = async (script: SqlScript) => {
-    if (!activeSession?.id) {
-      toast.error('没有活动的数据库会话')
-      return
-    }
-    
-    setIsExecuting(true)
-    setExecutionResult(null)
-    
-    try {
-      const result = await executeQuery(activeSession.id, script.content)
-      
-      if (result.error) {
-        setExecutionResult(`执行失败: ${result.error}`)
-      } else {
-        const totalRows = result.result_sets.reduce((sum, rs) => sum + rs.rows.length, 0)
-        setExecutionResult(`执行成功，返回 ${result.result_sets.length} 个结果集，共 ${totalRows} 行数据`)
-      }
-    } catch (err) {
-      setExecutionResult(`执行出错: ${err}`)
-    } finally {
-      setIsExecuting(false)
-      setIsResultDialogOpen(true)
-    }
-  }
-  
   // 重置脚本表单
   const resetScriptForm = () => {
     setCurrentScript({
@@ -350,15 +320,6 @@ export default function ScriptsPage() {
                           </Button>
                           <Button 
                             variant="ghost" 
-                            size="icon"
-                            onClick={() => executeScript(script)}
-                            disabled={!activeSession?.id || isExecuting}
-                            title="执行"
-                          >
-                            <PlayIcon className="h-4 w-4" />
-                          </Button>
-                          <Button 
-                            variant="ghost" 
                             size="icon" 
                             onClick={() => deleteScript(script.id)}
                             title="删除"
@@ -442,12 +403,12 @@ export default function ScriptsPage() {
               <label htmlFor="content" className="text-right pt-2">
                 SQL内容
               </label>
-              {/* <div className="col-span-3 h-full min-h-[300px] border rounded-md overflow-hidden">
+              <div className="col-span-3 h-full min-h-[300px] border rounded-md overflow-hidden">
                 <SqlEditor
                   value={currentScript.content}
                   onChange={(value) => setCurrentScript({...currentScript, content: value})}
                 />
-              </div> */}
+              </div>
             </div>
           </div>
           
