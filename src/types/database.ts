@@ -56,7 +56,8 @@ export interface ColumnInfo {
 
 // 单个结果集
 export interface ResultSet {
-  columns: string[]
+  columns: string[] 
+  column_types?: string[]
   rows: Record<string, any>[]
   affected_rows?: number
   error?: string

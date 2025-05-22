@@ -4,7 +4,6 @@ import {
   ConnectionResponse,
   QueryRequest,
   QueryResult,
-  ResultSet,
   ProcedureQueryRequest,
   TableQueryRequest,
   ColumnQueryRequest,
