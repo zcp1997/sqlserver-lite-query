@@ -111,8 +111,8 @@ export enum DatabaseObjectType {
 } 
 
 export interface StoredProcedureInfo {
-  name: String,
-  schema_name: String,
-  full_name: String,
-  definition: String,
+  name: string,
+  schema_name: string,
+  full_name: string,
+  definition: string,
 }

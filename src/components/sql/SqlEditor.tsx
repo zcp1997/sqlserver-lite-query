@@ -1,21 +1,22 @@
 "use client"
 
 import { useEffect, useRef } from 'react'
-import Editor, { OnMount, Monaco as MonacoReact } from '@monaco-editor/react' // Added Monaco type
+import Editor, { OnMount, Monaco as MonacoReact, loader } from '@monaco-editor/react'
 import { useTheme } from 'next-themes'
-import { invoke } from '@tauri-apps/api/core'; // Make sure this is correctly imported
 import * as monaco from 'monaco-editor';
-import { search_table_names } from '@/lib/api'
+import { search_column_details, search_table_names } from '@/lib/api'
+import { useSession } from '@/components/session/SessionContext'
+
+loader.config({ monaco });
 
 interface SqlEditorProps {
   value: string
   onChange: (value: string) => void
-  executeQuery?: () => void
+  executeQuery?: (queryText?: string) => void
   readOnly?: boolean
-  activeSessionId: string 
 }
 
-// SQL关键词 (Using your existing list, but we'll map it inside for consistency)
+// SQL关键词
 const baseSqlKeywordsArray = [
   'SELECT', 'FROM', 'WHERE', 'ORDER BY', 'GROUP BY', 'HAVING',
   'INNER JOIN', 'LEFT JOIN', 'RIGHT JOIN', 'FULL JOIN', 'ON',
@@ -26,68 +27,90 @@ const baseSqlKeywordsArray = [
   'INSERT INTO', 'DELETE FROM', 'CREATE TABLE', 'ALTER TABLE', 'DROP TABLE', 'TRUNCATE TABLE',
   'NULL', 'IS NULL', 'IS NOT NULL', 'ASC', 'DESC', 'VIEW', 'INDEX', 'PROCEDURE',
   'FUNCTION', 'TRIGGER', 'DATABASE', 'SCHEMA', 'CONSTRAINT', 'PRIMARY KEY',
-  'FOREIGN KEY', 'REFERENCES', 'DEFAULT', 'NOT NULL', 'UNIQUE', 'CHECK'
+  'FOREIGN KEY', 'REFERENCES', 'DEFAULT', 'NOT NULL', 'UNIQUE', 'CHECK',
+  'SSF', 'ST100'
 ];
-
 
 export default function SqlEditor({
   value,
   onChange,
   executeQuery,
-  readOnly = false,
-  activeSessionId
+  readOnly = false
 }: SqlEditorProps) {
-  const editorRef = useRef<any>(null) // Consider more specific types if available from @monaco-editor/react
-  const monacoRef = useRef<MonacoReact | null>(null) // Use Monaco type
-  const completionProviderRef = useRef<monaco.IDisposable | null>(null); // To manage the provider
+  const editorRef = useRef<any>(null)
+  const monacoRef = useRef<MonacoReact | null>(null)
+  const completionProviderRef = useRef<monaco.IDisposable | null>(null)
   const { theme } = useTheme()
+  const { activeSession } = useSession()
 
   // Helper to create completion items consistently
   const createCompletionItem = (
-    monacoInstance: MonacoReact, // Use MonacoReact alias or monaco if preferred
+    monacoInstance: MonacoReact,
     label: string,
-    kind: monaco.languages.CompletionItemKind, // Use monaco.languages.CompletionItemKind
-    insertText: string, // Changed to string
+    kind: monaco.languages.CompletionItemKind,
+    insertText: string,
     range: monaco.IRange,
     detail?: string,
     documentation?: string,
-    isSnippet: boolean = false // Added a flag to indicate if it's a snippet
-  ): monaco.languages.CompletionItem => { // Return type uses monaco.languages.CompletionItem
+    isSnippet: boolean = false
+  ): monaco.languages.CompletionItem => {
     const item: monaco.languages.CompletionItem = {
       label,
       kind,
-      insertText, // Directly use the string
+      insertText,
       range,
       detail,
       documentation,
     };
     if (isSnippet) {
-      // The monacoInstance here is the one from @monaco-editor/react,
-      // ensure it has .languages.CompletionItemInsertTextRule or use imported monaco
-      item.insertTextRules = monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet; // [cite: 237]
+      item.insertTextRules = monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet;
     }
     return item;
   };
 
+  // 修复：创建一个执行函数，获取当前编辑器内容并传递给父组件
+  const executeCurrentQuery = () => {
+    if (!executeQuery || !editorRef.current) {
+      console.log('executeQuery not available or editor not ready');
+      return;
+    }
+
+    // 直接从编辑器获取当前内容
+    const currentValue = editorRef.current.getValue();
+    console.log('Execute query called! Current editor value:', currentValue);
+
+    if (!currentValue.trim()) {
+      console.log('Query is empty, not executing');
+      return;
+    }
+
+    // 如果状态还没更新，先更新状态
+    if (currentValue !== value) {
+      onChange(currentValue);
+    }
+
+    // 关键修复：确保正确调用父组件的执行函数并传递参数
+    console.log('Calling executeQuery with value:', currentValue);
+    executeQuery(currentValue);
+  };
 
   const handleEditorDidMount: OnMount = (editor, monacoInstance) => {
     editorRef.current = editor
     monacoRef.current = monacoInstance
 
+    // 添加 Ctrl+Enter 快捷键
     editor.addCommand(
-      monacoInstance.KeyMod.CtrlCmd | monacoInstance.KeyCode.Enter,
-      () => {
-        executeQuery && executeQuery()
-      }
-    )
+      monacoInstance.KeyMod.CtrlCmd | 3,
+      executeCurrentQuery // 使用修复后的执行函数
+    );
 
-    // Dispose previous provider if one exists (e.g., on hot reload)
+    // Dispose previous provider if one exists
     if (completionProviderRef.current) {
       completionProviderRef.current.dispose();
     }
 
     completionProviderRef.current = monacoInstance.languages.registerCompletionItemProvider('sql', {
-      triggerCharacters: [' ', '.', '('], // Added '(' for insert statements
+      triggerCharacters: [' ', '.', '('],
       provideCompletionItems: async (model, position) => {
         const word = model.getWordUntilPosition(position);
         const range = {
@@ -114,7 +137,7 @@ export default function SqlEditor({
         if (tableKeywords.includes(lastSignificantToken) ||
           (tableKeywords.includes(secondLastSignificantToken) && word.word === "")) {
           try {
-            const tables = await search_table_names(activeSessionId, "")
+            const tables = await search_table_names(activeSession?.id || "", "")
             tables.forEach(table => {
               const label = table.schema ? `[${table.schema}].[${table.name}]` : `[${table.name}]`;
               dynamicSuggestions.push(createCompletionItem(
@@ -128,7 +151,7 @@ export default function SqlEditor({
               ));
             });
           } catch (error) {
-            console.error("Tauri Error fetching tables:", error);
+            console.error("Error fetching tables:", error);
           }
         }
 
@@ -138,7 +161,7 @@ export default function SqlEditor({
         if (dotMatch) {
           const tableNameOrAlias = dotMatch[1];
           try {
-            const columns: { name: string; data_type: string }[] = await invoke('get_columns_for_table', { tableName: tableNameOrAlias });
+            const columns = await search_column_details(activeSession?.id || "", tableNameOrAlias)
             columns.forEach(col => {
               dynamicSuggestions.push(createCompletionItem(
                 monacoInstance,
@@ -151,7 +174,7 @@ export default function SqlEditor({
               ));
             });
           } catch (error) {
-            console.error(`Tauri Error fetching columns for ${tableNameOrAlias}:`, error);
+            console.error(`Error fetching columns for ${tableNameOrAlias}:`, error);
           }
         }
 
@@ -159,13 +182,12 @@ export default function SqlEditor({
         const afterSelectRegex = /SELECT\s+(?:[\w.]+\s*,\s*)*$/i;
         const isAfterSelect = lastSignificantToken === 'SELECT' || (secondLastSignificantToken === 'SELECT' && word.word === "") || textBeforeCursor.endsWith(',');
 
-        if (isAfterSelect && textBeforeCursor.includes("FROM")) { // Only suggest columns if FROM is present
-          // Naive: find the first table after FROM. A real parser is needed for complex queries.
+        if (isAfterSelect && textBeforeCursor.includes("FROM")) {
           const fromTableMatch = textBeforeCursor.match(/FROM\s+([A-Z0-9_.]+)\b/i);
           if (fromTableMatch) {
-            const tableName = fromTableMatch[1].split('.').pop() || fromTableMatch[1]; // Handle schema.table
+            const tableName = fromTableMatch[1].split('.').pop() || fromTableMatch[1];
             try {
-              const columns: { name: string; data_type: string }[] = await invoke('get_columns_for_table', { tableName });
+              const columns = await search_column_details(activeSession?.id || "", tableName)
               columns.forEach(col => {
                 dynamicSuggestions.push(createCompletionItem(
                   monacoInstance,
@@ -178,11 +200,11 @@ export default function SqlEditor({
                 ));
               });
             } catch (error) {
-              console.error(`Tauri Error fetching columns for SELECT (${tableName}):`, error);
+              console.error(`Error fetching columns for SELECT (${tableName}):`, error);
             }
           }
         }
-        // Always suggest '*' after SELECT or a comma in SELECT
+
         if (isAfterSelect) {
           dynamicSuggestions.push(createCompletionItem(
             monacoInstance,
@@ -194,18 +216,16 @@ export default function SqlEditor({
           ));
         }
 
-
         // c) After "UPDATE table_name SET " or "UPDATE table_name SET column = value, "
         const updateSetMatch = textBeforeCursor.match(/UPDATE\s+(\b[A-Z0-9_.]+)\b\s+SET\s+(?:[\w.]+\s*=\s*[^,]+(?:,\s*)?)*(\w*)$/i);
         if (updateSetMatch) {
           const tableNameWithSchema = updateSetMatch[1];
-          const tableName = tableNameWithSchema.split('.').pop() || tableNameWithSchema; // Get actual table name
+          const tableName = tableNameWithSchema.split('.').pop() || tableNameWithSchema;
           const textAfterSet = textBeforeCursor.substring(textBeforeCursor.indexOf("SET") + 3).trim();
 
-          // Suggest column if at the beginning of a new assignment or after a comma
           if (word.word === "" || textAfterSet.endsWith(',')) {
             try {
-              const columns: { name: string; data_type: string }[] = await invoke('get_columns_for_table', { tableName });
+              const columns = await search_column_details(activeSession?.id || "", tableName)
               columns.forEach(col => {
                 dynamicSuggestions.push(createCompletionItem(
                   monacoInstance,
@@ -218,7 +238,7 @@ export default function SqlEditor({
                 ));
               });
             } catch (error) {
-              console.error(`Tauri Error fetching columns for UPDATE SET (${tableName}):`, error);
+              console.error(`Error fetching columns for UPDATE SET (${tableName}):`, error);
             }
           }
         }
@@ -229,9 +249,9 @@ export default function SqlEditor({
           const tableNameWithSchema = insertColumnsMatch[1];
           const tableName = tableNameWithSchema.split('.').pop() || tableNameWithSchema;
           const existingColsText = insertColumnsMatch[2];
-          if (!existingColsText.includes(')')) { // Only suggest if parenthesis is not closed
+          if (!existingColsText.includes(')')) {
             try {
-              const columns: { name: string; data_type: string }[] = await invoke('get_columns_for_table', { tableName });
+              const columns = await search_column_details(activeSession?.id || "", tableName)
               columns.forEach(col => {
                 dynamicSuggestions.push(createCompletionItem(
                   monacoInstance,
@@ -244,22 +264,21 @@ export default function SqlEditor({
                 ));
               });
             } catch (error) {
-              console.error(`Tauri Error fetching columns for INSERT context (${tableName}):`, error);
+              console.error(`Error fetching columns for INSERT context (${tableName}):`, error);
             }
           }
         }
 
-
         // --- 3. Static Keyword and Snippet Suggestions ---
         const staticSuggestions = baseSqlKeywordsArray.map(keyword => {
-          let currentKind = monaco.languages.CompletionItemKind.Keyword; // Use monaco.languages
+          let currentKind = monaco.languages.CompletionItemKind.Keyword;
           let currentInsertText = keyword + ' ';
           let currentDetail = `SQL Keyword`;
           let isSnippet = false;
 
           if (['COUNT', 'SUM', 'AVG', 'MAX', 'MIN'].includes(keyword)) {
-            currentKind = monaco.languages.CompletionItemKind.Function; // Use monaco.languages
-            currentInsertText = `${keyword}($1)$0`; // Snippet string
+            currentKind = monaco.languages.CompletionItemKind.Function;
+            currentInsertText = `${keyword}($1)$0`;
             currentDetail = `Aggregate Function`;
             isSnippet = true;
           } else if (keyword === 'CASE') {
@@ -274,21 +293,28 @@ export default function SqlEditor({
             currentInsertText = `UPDATE \${1:table_name} SET \${2:column1} = \${3:value1} WHERE \${4:condition};$0`;
             currentDetail = 'Update data snippet';
             isSnippet = true;
-          }// Add more snippets as needed
+          } else if (keyword === 'SSF') {
+            currentInsertText = `SELECT * FROM \${1:table_name}`;
+            currentDetail = 'Select all snippet';
+            isSnippet = true;
+          } else if (keyword === 'ST100') {
+            currentInsertText = `SELECT TOP 100 * FROM \${1:table_name}`;
+            currentDetail = 'Select top 100 snippet';
+            isSnippet = true;
+          }
 
-          // Remove trailing space for snippets if it was added by default
           if (isSnippet && currentInsertText.endsWith(' ')) {
             currentInsertText = currentInsertText.slice(0, -1);
           }
 
           return createCompletionItem(
-            monacoInstance, // Pass the instance from onMount
+            monacoInstance,
             keyword,
             currentKind,
             currentInsertText,
             range,
             currentDetail,
-            undefined, // documentation
+            undefined,
             isSnippet
           );
         });
@@ -327,7 +353,6 @@ export default function SqlEditor({
           ));
         }
 
-
         return {
           suggestions: [...staticSuggestions, ...dynamicSuggestions]
         };
@@ -336,7 +361,7 @@ export default function SqlEditor({
   }
 
   useEffect(() => {
-    if (monacoRef.current) { // Check if monacoRef.current is not null
+    if (monacoRef.current) {
       const monacoTheme = theme === 'dark' ? 'vs-dark' : 'vs';
       monacoRef.current.editor.setTheme(monacoTheme);
     }
@@ -358,7 +383,7 @@ export default function SqlEditor({
         height="100%"
         language="sql"
         value={value}
-        onChange={(val) => onChange(val || '')} // Ensure val is not undefined
+        onChange={(val) => onChange(val || '')}
         onMount={handleEditorDidMount}
         options={{
           minimap: { enabled: false },
@@ -369,18 +394,17 @@ export default function SqlEditor({
           tabSize: 2,
           fontSize: 14,
           readOnly,
-          fontFamily: 'Maple Mono, Monaco, "Courier New", monospace', // Your custom font
-          fixedOverflowWidgets: true, // Good for suggestion popups
+          fontFamily: 'Monaco, "Courier New", monospace',
+          fixedOverflowWidgets: true,
           suggestOnTriggerCharacters: true,
           acceptSuggestionOnEnter: 'on',
           tabCompletion: 'on',
-          // consider adding these for better suggestion experience
-          quickSuggestions: { // Show suggestions not just on trigger characters
+          quickSuggestions: {
             other: true,
             comments: false,
             strings: true
           },
-          suggestSelection: 'first', // 'first', 'recentlyUsed', 'recentlyUsedByPrefix'
+          suggestSelection: 'first',
         }}
       />
     </div>

@@ -1,7 +1,8 @@
 "use client"
 
-import { useState } from 'react'
-import { QueryResult, DatabaseObjectType } from '@/types/database'
+import { useState, useEffect, useCallback } from 'react'
+import { v4 as uuidv4 } from 'uuid'
+import { QueryResult, DatabaseObjectType, StoredProcedureInfo } from '@/types/database'
 import SessionSelector from '@/components/session/SessionSelector'
 import SqlEditor from '@/components/sql/SqlEditor'
 import ResultPanel from '@/components/sql/ResultPanel'
@@ -40,13 +41,21 @@ import {
   DialogHeader,
   DialogTitle,
   DialogDescription,
+  DialogFooter,
+  DialogTrigger
 } from "@/components/ui/dialog"
 import { Input } from '@/components/ui/input'
 import { useSession } from '@/components/session/SessionContext'
+import EditorTabs, { EditorTab } from '@/components/sql/EditorTabs'
+import { debounce } from 'lodash';
 
 export default function SqlWorkbenchPage() {
   const { activeSession } = useSession()
   const { addQueryToHistory } = useQueryHistory()
+
+  // 标签页状态
+  const [sqlTabs, setSqlTabs] = useState<EditorTab[]>([])
+  const [activeSqlTabId, setActiveSqlTabId] = useState<string>('')
 
   const [sqlQuery, setSqlQuery] = useState<string>('')
   const [isExecuting, setIsExecuting] = useState(false)
@@ -64,9 +73,57 @@ export default function SqlWorkbenchPage() {
   // SQL跟踪器
   const [tracerOpen, setTracerOpen] = useState(false)
 
-  // 执行SQL查询
-  const executeCurrentQuery = async () => {
-    if (!sqlQuery.trim() || !activeSession) return
+  // SQL object 查询状态
+  const [isDbObjectsSearching, setDbObjectsIsSearching] = useState(false);
+
+  // 修复：正确的tab切换处理函数
+  const handleTabChange = useCallback((tabId: string) => {
+    // 保存当前tab的内容
+    if (activeSqlTabId && sqlQuery !== undefined) {
+      setSqlTabs(prev => prev.map(tab =>
+        tab.id === activeSqlTabId
+          ? { ...tab, content: sqlQuery, isDirty: tab.content !== sqlQuery }
+          : tab
+      ));
+    }
+
+    // 切换到新tab并加载其内容
+    setActiveSqlTabId(tabId);
+    const targetTab = sqlTabs.find(tab => tab.id === tabId);
+    if (targetTab) {
+      setSqlQuery(targetTab.content);
+      // 切换tab时清空结果和错误
+      setQueryResult(null);
+      setError(null);
+    }
+  }, [activeSqlTabId, sqlQuery, sqlTabs]);
+
+  // 修复：正确的内容更新函数
+  const updateTabContent = useCallback((content: string) => {
+    setSqlQuery(content);
+    // 同步更新对应tab的内容
+    setSqlTabs(prev => prev.map(tab =>
+      tab.id === activeSqlTabId
+        ? { ...tab, content, isDirty: tab.content !== content }
+        : tab
+    ));
+  }, [activeSqlTabId]);
+
+  // 执行查询函数
+  const executeCurrentQuery = async (queryToExecute?: string) => {
+    // 获取当前活动tab的内容
+    const currentTab = sqlTabs.find(tab => tab.id === activeSqlTabId);
+    const queryText = queryToExecute || currentTab?.content || sqlQuery;
+
+    if (!queryText || !queryText.trim()) {
+      console.log('Query is empty or undefined');
+      return;
+    }
+
+    if (!activeSession) {
+      console.log('no active session');
+      return;
+    }
 
     setIsExecuting(true)
     setError(null)
@@ -75,24 +132,21 @@ export default function SqlWorkbenchPage() {
     const startTime = Date.now()
 
     try {
-      const isQuery = isQueryStatement(sqlQuery)
+      const isQuery = isQueryStatement(queryText)
 
       const result = isQuery
-        ? await executeQuery(activeSession.id, sqlQuery)
-        : await executeNonQuery(activeSession.id, sqlQuery)
-
-      //const result1 = await search_stored_procedures(activeSessionId, "入库验收")
+        ? await executeQuery(activeSession.id, queryText)
+        : await executeNonQuery(activeSession.id, queryText)
 
       const duration = Date.now() - startTime
 
       if (result.error) {
         setError(result.error)
 
-        // 添加到历史记录
         if (activeSession) {
           addQueryToHistory(
             activeSession,
-            sqlQuery,
+            queryText,
             duration,
             false,
             result.error
@@ -102,11 +156,10 @@ export default function SqlWorkbenchPage() {
         setQueryResult(result)
         setActiveTab('result')
 
-        // 添加到历史记录
         if (activeSession) {
           addQueryToHistory(
             activeSession,
-            sqlQuery,
+            queryText,
             duration,
             true
           )
@@ -115,11 +168,10 @@ export default function SqlWorkbenchPage() {
     } catch (err) {
       setError(`查询执行失败: ${err}`)
 
-      // 添加到历史记录
       if (activeSession) {
         addQueryToHistory(
           activeSession,
-          sqlQuery,
+          queryText,
           Date.now() - startTime,
           false,
           String(err)
@@ -132,8 +184,6 @@ export default function SqlWorkbenchPage() {
 
   // 停止执行
   const stopExecution = () => {
-    // 实际上我们可能需要调用后端API来取消查询
-    // 这里先简单实现为标记状态
     if (isExecuting) {
       setIsExecuting(false)
       setError('查询已手动停止')
@@ -144,29 +194,62 @@ export default function SqlWorkbenchPage() {
   const loadDatabaseObjects = async (type: DatabaseObjectType, searchTerm: string = '') => {
     if (!activeSession) return
 
-    setDbObjectType(type)
-    setDbObjectSearchTerm(searchTerm)
+    setDbObjectType(type);
+    setDbObjectSearchTerm(searchTerm);
+    setDbObjectDialogOpen(true);
 
-    try {
-      // 这里应该调用后端API获取数据库对象
-      // 临时模拟数据
-      setDbObjects([
-        { name: `${type}_示例1`, definition: `-- ${type} 定义示例1\nCREATE ${type} example1 AS\nSELECT * FROM users;` },
-        { name: `${type}_示例2`, definition: `-- ${type} 定义示例2\nCREATE ${type} example2 AS\nSELECT * FROM products;` }
-      ])
-
-      setDbObjectDialogOpen(true)
-    } catch (err) {
-      setError(`加载${type}失败: ${err}`)
-    }
+    // 初始加载
+    debouncedSearch(searchTerm);
   }
+
+  // 在 SqlWorkbenchPage 组件内部添加
+  const debouncedSearch = useCallback(
+    debounce(async (term: string) => {
+      if (!activeSession) return;
+
+      setDbObjectsIsSearching(true);
+      try {
+        if (dbObjectType === DatabaseObjectType.StoredProcedure) {
+          const procedures: StoredProcedureInfo[] = await search_stored_procedures(
+            activeSession.id,
+            term
+          );
+
+          const formattedObjects = procedures.map(proc => ({
+            name: proc.full_name || proc.name,
+            definition: proc.definition || `-- 存储过程: ${proc.name}\n-- 架构: ${proc.schema_name}\n-- 完整名称: ${proc.full_name}\n\n${proc.definition}`
+          }));
+
+          setDbObjects(formattedObjects);
+        }
+        else {
+          setDbObjects([]);
+        }
+        // 可以添加其他类型的处理
+      } catch (err) {
+        setError(`搜索${dbObjectType}失败: ${err}`);
+      } finally {
+        setDbObjectsIsSearching(false);
+      }
+    }, 500), // 500ms 的防抖延迟
+    [activeSession, dbObjectType]
+  );
+
+  useEffect(() => {
+    if (dbObjectDialogOpen) {
+      debouncedSearch(dbObjectSearchTerm);
+    }
+  }, [dbObjectSearchTerm, dbObjectDialogOpen, debouncedSearch]);
 
   // 打开数据库对象
   const openDatabaseObject = (obj: { name: string, definition: string }) => {
     setSelectedObject(obj)
-    // 可以选择将定义插入到编辑器
+    // 将定义插入到当前活动tab
     setSqlQuery(obj.definition)
+    updateTabContent(obj.definition)
     setDbObjectDialogOpen(false)
+    // 清空选中的对象，这样下次打开对话框时不会显示上次的内容
+    setTimeout(() => setSelectedObject(null), 100); // 使用setTimeout确保对话框关闭后再清空
   }
 
   // 重新加载索引
@@ -174,19 +257,148 @@ export default function SqlWorkbenchPage() {
     if (!activeSession) return
 
     try {
-      // 这里应该调用后端API重新加载索引
-      // 临时实现
       setError('重新加载索引功能尚未实现')
     } catch (err) {
       setError(`重新加载索引失败: ${err}`)
     }
   }
 
+  // 修复：初始化默认标签页，确保session准备好后再创建
+  useEffect(() => {
+    if (sqlTabs.length === 0 && activeSession?.id) {
+      const newTabId = uuidv4()
+      const newTab: EditorTab = {
+        id: newTabId,
+        title: `SQLQuery1`,
+        content: '',
+        sessionId: activeSession.id,
+        isDirty: false
+      }
+      setSqlTabs([newTab])
+      setActiveSqlTabId(newTabId)
+      setSqlQuery('')
+    }
+  }, [activeSession?.id, sqlTabs.length])
+
+  // 添加新标签页
+  const addNewTab = useCallback(() => {
+    if (!activeSession) return
+
+    // 保存当前tab内容
+    if (activeSqlTabId && sqlQuery !== undefined) {
+      setSqlTabs(prev => prev.map(tab =>
+        tab.id === activeSqlTabId
+          ? { ...tab, content: sqlQuery, isDirty: tab.content !== sqlQuery }
+          : tab
+      ));
+    }
+
+    const tabCount = sqlTabs.length + 1
+    const newTabId = uuidv4()
+    const newTab: EditorTab = {
+      id: newTabId,
+      title: `SQLQuery${tabCount}`,
+      content: '',
+      sessionId: activeSession.id,
+      isDirty: false
+    }
+
+    setSqlTabs(prev => [...prev, newTab])
+    setActiveSqlTabId(newTabId)
+    setSqlQuery('')
+    setQueryResult(null)
+    setError(null)
+  }, [activeSession, activeSqlTabId, sqlQuery, sqlTabs.length])
+
+  // 修复：关闭标签页逻辑
+  const closeTab = useCallback((tabId: string) => {
+    if (sqlTabs.length <= 1) {
+      // 不允许关闭最后一个tab
+      return;
+    }
+
+    // 如果关闭的是当前活动标签页，需要切换到其他标签页
+    if (tabId === activeSqlTabId) {
+      const tabIndex = sqlTabs.findIndex(t => t.id === tabId)
+      let newActiveTabId = '';
+
+      if (tabIndex > 0) {
+        newActiveTabId = sqlTabs[tabIndex - 1].id
+      } else if (sqlTabs.length > 1) {
+        newActiveTabId = sqlTabs[1].id
+      }
+
+      if (newActiveTabId) {
+        const newActiveTab = sqlTabs.find(t => t.id === newActiveTabId);
+        if (newActiveTab) {
+          setActiveSqlTabId(newActiveTabId);
+          setSqlQuery(newActiveTab.content);
+        }
+      }
+    }
+
+    setSqlTabs(prev => prev.filter(t => t.id !== tabId))
+  }, [sqlTabs, activeSqlTabId])
+
   return (
     <div className="flex flex-col h-full max-h-full overflow-hidden">
-      <div className="p-2 border-b flex-shrink-0">
+      <div className="p-2 border-b flex flex-shrink-0 items-center space-x-4">
         <SessionSelector />
+
+        {/* 清空按钮 */}
+        <Dialog>
+          <DialogTrigger asChild>
+            <Button
+              className="bg-red-500 hover:bg-red-600 text-white"
+              variant="outline"
+              size="sm"
+            >
+              <TrashIcon className="h-4 w-4 mr-1" />
+              清空所有数据
+            </Button>
+          </DialogTrigger>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>确认清空所有数据</DialogTitle>
+              <DialogDescription>
+                此操作将清空所有配置和数据，且无法撤销。你确定要继续吗？
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  // 关闭对话框（Dialog 组件会自动处理关闭）
+                }}
+              >
+                取消
+              </Button>
+              <Button
+                className="bg-red-500 hover:bg-red-600 text-white"
+                onClick={() => {
+                  setSqlQuery('');
+                  setQueryResult(null);
+                  setError(null);
+                  localStorage.clear();
+                  alert('所有配置已清空');
+                  location.href = '/';
+                }}
+              >
+                确认清空
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
+
+      {/* 编辑器标签页 */}
+      <EditorTabs
+        tabs={sqlTabs}
+        activeTabId={activeSqlTabId}
+        onTabChange={handleTabChange}
+        onTabClose={closeTab}
+        onTabAdd={addNewTab}
+      />
 
       {/* 主要工作区域 */}
       <ResizablePanelGroup
@@ -197,16 +409,6 @@ export default function SqlWorkbenchPage() {
         <ResizablePanel defaultSize={40} minSize={20}>
           <div className="flex flex-col h-full max-h-full overflow-hidden">
             <div className="flex justify-between items-center p-2 border-b flex-shrink-0">
-              {/* <div className="text-sm font-medium">
-                {activeSession ? (
-                  <span>
-                    {activeSession.connectionName} - {activeSession.database}
-                  </span>
-                ) : (
-                  <span className="text-muted-foreground">无活动会话</span>
-                )}
-              </div> */}
-
               <div className="flex items-center gap-2">
                 {/* SQL管理下拉菜单 */}
                 <DropdownMenu>
@@ -263,30 +465,12 @@ export default function SqlWorkbenchPage() {
 
                 {/* 执行按钮 */}
                 <Button
-                  onClick={executeCurrentQuery}
+                  onClick={() => executeCurrentQuery()}
                   disabled={isExecuting || !activeSession || !sqlQuery.trim()}
                   size="sm"
                 >
                   <PlayIcon className="h-4 w-4 mr-1" />
-                  {isExecuting ? '执行中...' : '执行'}
-                </Button>
-
-                {/* 清空按钮 */}
-                <Button
-                  className="bg-red-500 hover:bg-red-600 text-white"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    setSqlQuery('')
-                    setQueryResult(null)
-                    setError(null)
-                    localStorage.clear();
-                    alert('所有配置已清空')
-                    location.href = '/';
-                  }}
-                >
-                  <TrashIcon className="h-4 w-4 mr-1" />
-                  清空所有数据
+                  {isExecuting ? '执行中...' : '执行(Ctrl+Enter)'}
                 </Button>
               </div>
             </div>
@@ -294,10 +478,9 @@ export default function SqlWorkbenchPage() {
             {activeSession && activeSession.id && <div className="flex-1 p-1 overflow-hidden">
               <SqlEditor
                 value={sqlQuery}
-                onChange={setSqlQuery}
+                onChange={updateTabContent}
                 executeQuery={executeCurrentQuery}
                 readOnly={isExecuting}
-                activeSessionId={activeSession.id}
               />
             </div>}
           </div>
@@ -355,9 +538,17 @@ export default function SqlWorkbenchPage() {
         </ResizablePanel>
       </ResizablePanelGroup>
 
-
       {/* 数据库对象对话框 */}
-      <Dialog open={dbObjectDialogOpen} onOpenChange={setDbObjectDialogOpen}>
+      <Dialog
+        open={dbObjectDialogOpen}
+        onOpenChange={(open) => {
+          setDbObjectDialogOpen(open);
+          if (!open) {
+            // 当对话框关闭时，清空选中的对象
+            setTimeout(() => setSelectedObject(null), 100);
+          }
+        }}
+      >
         <DialogContent className="sm:max-w-[800px] max-h-[80vh] overflow-hidden flex flex-col">
           <DialogHeader>
             <DialogTitle>
@@ -379,26 +570,40 @@ export default function SqlWorkbenchPage() {
               onChange={(e) => setDbObjectSearchTerm(e.target.value)}
               className="flex-1"
             />
+            {isDbObjectsSearching && (
+              <div className="animate-spin h-4 w-4 border-2 border-primary border-t-transparent rounded-full" />
+            )}
           </div>
 
+          {/* 添加水平布局容器，包裹左侧列表和右侧详情 */}
           <div className="flex flex-1 overflow-hidden border rounded-md">
+            {/* 左侧列表 */}
             <div className="w-1/3 border-r overflow-auto">
               <ul className="divide-y">
-                {dbObjects
-                  .filter(obj => obj.name.toLowerCase().includes(dbObjectSearchTerm.toLowerCase()))
-                  .map(obj => (
-                    <li
-                      key={obj.name}
-                      className={`p-2 hover:bg-muted cursor-pointer ${selectedObject?.name === obj.name ? 'bg-muted' : ''}`}
-                      onClick={() => setSelectedObject(obj)}
+                {dbObjects.map(obj => (
+                  <li
+                    key={obj.name}
+                    className={`p-2 hover:bg-muted cursor-pointer ${selectedObject?.name === obj.name ? 'bg-muted' : ''}`}
+                    onClick={() => setSelectedObject(obj)}
+                  >
+                    <div
+                      className="truncate text-sm"
+                      title={obj.name}
+                      style={{ wordBreak: 'break-word', overflowWrap: 'break-word', whiteSpace: 'normal', lineHeight: '1.2' }}
                     >
                       {obj.name}
-                    </li>
-                  ))
-                }
+                    </div>
+                  </li>
+                ))}
+                {dbObjects.length === 0 && !isDbObjectsSearching && (
+                  <li className="p-2 text-muted-foreground text-center">
+                    未找到匹配的对象
+                  </li>
+                )}
               </ul>
             </div>
 
+            {/* 右侧详情 */}
             <div className="flex-1 overflow-auto p-2 bg-muted/30">
               {selectedObject ? (
                 <>
@@ -422,6 +627,7 @@ export default function SqlWorkbenchPage() {
         </DialogContent>
       </Dialog>
 
+
       {/* SQL跟踪器对话框 */}
       <Dialog open={tracerOpen} onOpenChange={setTracerOpen}>
         <DialogContent className="sm:max-w-[800px] max-h-[80vh] overflow-hidden flex flex-col">
@@ -439,6 +645,6 @@ export default function SqlWorkbenchPage() {
           </div>
         </DialogContent>
       </Dialog>
-    </div>
+    </div >
   )
-} 
+}
