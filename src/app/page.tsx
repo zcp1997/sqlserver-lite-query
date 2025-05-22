@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { v4 as uuidv4 } from 'uuid'
-import { QueryResult, DatabaseObjectType, StoredProcedureInfo } from '@/types/database'
+import { QueryResult, DatabaseObjectType, StoredProcedureInfo, SqlScript } from '@/types/database'
 import SessionSelector from '@/components/session/SessionSelector'
 import SqlEditor from '@/components/sql/SqlEditor'
 import ResultPanel from '@/components/sql/ResultPanel'
@@ -23,9 +23,9 @@ import {
   RefreshCcwIcon,
   ActivityIcon,
   ChevronDownIcon,
-  TrashIcon
+  TrashIcon,
+  BookOpenIcon
 } from 'lucide-react'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -61,7 +61,6 @@ export default function SqlWorkbenchPage() {
   const [isExecuting, setIsExecuting] = useState(false)
   const [queryResult, setQueryResult] = useState<QueryResult | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [activeTab, setActiveTab] = useState('result')
 
   // 数据库对象管理
   const [dbObjectDialogOpen, setDbObjectDialogOpen] = useState(false)
@@ -70,13 +69,14 @@ export default function SqlWorkbenchPage() {
   const [dbObjects, setDbObjects] = useState<{ name: string, definition: string }[]>([])
   const [selectedObject, setSelectedObject] = useState<{ name: string, definition: string } | null>(null)
 
-  // SQL跟踪器
-  const [tracerOpen, setTracerOpen] = useState(false)
-
   // SQL object 查询状态
   const [isDbObjectsSearching, setDbObjectsIsSearching] = useState(false);
 
-  // 修复：正确的tab切换处理函数
+  // SQL scripts
+  const [scriptDialogOpen, setScriptDialogOpen] = useState(false)
+  const [scriptGroups, setScriptGroups] = useState<Record<string, SqlScript[]>>({})
+
+  // tab切换处理函数
   const handleTabChange = useCallback((tabId: string) => {
     // 保存当前tab的内容
     if (activeSqlTabId && sqlQuery !== undefined) {
@@ -154,7 +154,6 @@ export default function SqlWorkbenchPage() {
         }
       } else {
         setQueryResult(result)
-        setActiveTab('result')
 
         if (activeSession) {
           addQueryToHistory(
@@ -340,6 +339,23 @@ export default function SqlWorkbenchPage() {
     setSqlTabs(prev => prev.filter(t => t.id !== tabId))
   }, [sqlTabs, activeSqlTabId])
 
+  useEffect(() => {
+    const raw = localStorage.getItem('sqlserver-scripts')
+    if (!raw) return
+
+    try {
+      const list: SqlScript[] = JSON.parse(raw)
+      const grouped: Record<string, SqlScript[]> = {}
+      for (const script of list) {
+        if (!grouped[script.groupName]) grouped[script.groupName] = []
+        grouped[script.groupName].push(script)
+      }
+      setScriptGroups(grouped)
+    } catch (err) {
+      console.error('解析 sqlserver-scripts 失败', err)
+    }
+  }, [])
+
   return (
     <div className="flex flex-col h-full max-h-full overflow-hidden">
       <div className="p-2 border-b flex flex-shrink-0 items-center space-x-4">
@@ -415,7 +431,7 @@ export default function SqlWorkbenchPage() {
                   <DropdownMenuTrigger asChild>
                     <Button variant="outline" size="sm">
                       <DatabaseIcon className="h-4 w-4 mr-1" />
-                      SQL管理
+                      数据库对象管理
                       <ChevronDownIcon className="h-4 w-4 ml-1" />
                     </Button>
                   </DropdownMenuTrigger>
@@ -441,15 +457,15 @@ export default function SqlWorkbenchPage() {
                   </DropdownMenuContent>
                 </DropdownMenu>
 
-                {/* 跟踪器按钮 */}
+                {/* SQL脚本按钮 */}
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => setTracerOpen(true)}
+                  onClick={() => setScriptDialogOpen(true)}
                   disabled={!activeSession?.id}
                 >
-                  <ActivityIcon className="h-4 w-4 mr-1" />
-                  打开跟踪器
+                  <BookOpenIcon className="h-4 w-4 mr-1" />
+                  打开SQL脚本
                 </Button>
 
                 {/* 停止执行按钮 */}
@@ -472,6 +488,7 @@ export default function SqlWorkbenchPage() {
                   <PlayIcon className="h-4 w-4 mr-1" />
                   {isExecuting ? '执行中...' : '执行(Ctrl+Enter)'}
                 </Button>
+
               </div>
             </div>
 
@@ -600,22 +617,40 @@ export default function SqlWorkbenchPage() {
         </DialogContent>
       </Dialog>
 
-
-      {/* SQL跟踪器对话框 */}
-      <Dialog open={tracerOpen} onOpenChange={setTracerOpen}>
-        <DialogContent className="sm:max-w-[800px] max-h-[80vh] overflow-hidden flex flex-col">
+      <Dialog open={scriptDialogOpen} onOpenChange={setScriptDialogOpen}>
+        <DialogContent className="sm:max-w-[800px] max-h-[80vh] overflow-auto">
           <DialogHeader>
-            <DialogTitle>SQL跟踪器</DialogTitle>
-            <DialogDescription>
-              监控当前会话的SQL活动
-            </DialogDescription>
+            <DialogTitle>选择 SQL 脚本</DialogTitle>
+            <DialogDescription>从本地保存的脚本中选择</DialogDescription>
           </DialogHeader>
 
-          <div className="flex-1 overflow-auto p-4 bg-muted/30 min-h-[300px]">
-            <div className="text-center text-muted-foreground">
-              SQL跟踪器功能尚未实现
+          {Object.keys(scriptGroups).length === 0 ? (
+            <p className="text-muted-foreground">暂无脚本，请先添加。</p>
+          ) : (
+            <div className="space-y-4">
+              {Object.entries(scriptGroups).map(([groupName, scripts]) => (
+                <div key={groupName}>
+                  <h4 className="font-semibold text-sm mb-1">{groupName}</h4>
+                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
+                    {scripts.map(script => (
+                      <Button
+                        key={script.id}
+                        variant="outline"
+                        className="justify-start"
+                        onClick={() => {
+                          setSqlQuery(script.content)
+                          updateTabContent(script.content)
+                          setScriptDialogOpen(false)
+                        }}
+                      >
+                        {script.name}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+              ))}
             </div>
-          </div>
+          )}
         </DialogContent>
       </Dialog>
     </div >

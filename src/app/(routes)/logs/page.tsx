@@ -42,7 +42,7 @@ export default function SqlQueryLog() {
     <Card className="m-4 shadow-xl rounded-2xl">
       <CardContent className="p-6">
         <h2 className="text-xl font-semibold flex items-center gap-2 mb-4">
-          <Database className="w-5 h-5" /> sql查询日志列表
+          <Database className="w-5 h-5" /> SQL执行日志列表
         </h2>
 
         <Table>

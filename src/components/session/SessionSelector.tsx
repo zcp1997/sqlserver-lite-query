@@ -143,7 +143,7 @@ export default function SessionSelector() {
               onClick={() => activeSession?.id && handleSessionClose(activeSession?.id)}
               title="关闭会话"
             >
-              <XIcon className="h-4 w-4" />
+              <XIcon className="h-4 w-4"/>
             </Button>
           )}
         </>
@@ -160,8 +160,7 @@ export default function SessionSelector() {
         size="sm"
         onClick={() => setIsNewSessionOpen(true)}
       >
-        <PlusIcon className="h-4 w-4 mr-1" />
-        创建新会话/管理数据库连接
+      创建新会话 | 管理数据库连接
       </Button>
 
       <Dialog open={isNewSessionOpen} onOpenChange={setIsNewSessionOpen}>

@@ -24,7 +24,7 @@ const data = {
       icon: FileTextIcon,
     },
     {
-      title: "SQL查询记录",
+      title: "SQL执行记录",
       url: "/logs",
       icon: LogsIcon,
     },
