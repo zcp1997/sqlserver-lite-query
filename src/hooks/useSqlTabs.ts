@@ -8,6 +8,7 @@ export function useSqlTabs(activeSession: Session | null) {
   const [sqlTabs, setSqlTabs] = useState<EditorTab[]>([])
   const [activeSqlTabId, setActiveSqlTabId] = useState<string>('')
   const [sqlQuery, setSqlQuery] = useState<string>('')
+  const [tabCounter, setTabCounter] = useState(1);
 
   // tab切换处理函数
   const handleTabChange = useCallback((tabId: string) => {
@@ -45,7 +46,7 @@ export function useSqlTabs(activeSession: Session | null) {
       const newTabId = uuidv4()
       const newTab: EditorTab = {
         id: newTabId,
-        title: 'SQLQuery1',
+        title: 'SQLQuery0',
         content: '',
         sessionId: activeSession.id,
         isDirty: false
@@ -56,7 +57,6 @@ export function useSqlTabs(activeSession: Session | null) {
     }
   }, [activeSession?.id, sqlTabs.length]);
 
-  // 添加新标签页
   const addNewTab = useCallback(() => {
     if (!activeSession) return
 
@@ -69,11 +69,10 @@ export function useSqlTabs(activeSession: Session | null) {
       ));
     }
 
-    const tabCount = sqlTabs.length + 1
     const newTabId = uuidv4()
     const newTab: EditorTab = {
       id: newTabId,
-      title: `SQLQuery${tabCount}`,
+      title: `SQLQuery${tabCounter}`,
       content: '',
       sessionId: activeSession.id,
       isDirty: false
@@ -82,7 +81,8 @@ export function useSqlTabs(activeSession: Session | null) {
     setSqlTabs(prev => [...prev, newTab])
     setActiveSqlTabId(newTabId)
     setSqlQuery('')
-  }, [activeSession, activeSqlTabId, sqlQuery, sqlTabs.length]);
+    setTabCounter(prev => prev + 1) // 递增计数器
+  }, [activeSession, activeSqlTabId, sqlQuery, tabCounter]);
 
   // 关闭标签页逻辑
   const closeTab = useCallback((tabId: string) => {

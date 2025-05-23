@@ -1,4 +1,3 @@
-// components/sql/EditorTabs.tsx
 import { X, Plus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
@@ -30,9 +29,11 @@ export default function EditorTabs({
       {tabs.map((tab) => (
         <div
           key={tab.id}
-          className={`flex items-center px-3 py-2 border-r cursor-pointer ${
-            activeTabId === tab.id ? 'bg-background' : 'bg-muted/30 hover:bg-muted/50'
-          }`}
+          className={`flex items-center px-3 py-2 border-r cursor-pointer transition-colors
+            ${activeTabId === tab.id
+              ? 'bg-primary border-b-2 border-b-primary text-primary-foreground font-medium'
+              : 'bg-muted/30 hover:bg-muted/50'
+            }`}
           onClick={() => onTabChange(tab.id)}
         >
           <span className="mr-2 max-w-[150px] truncate">
