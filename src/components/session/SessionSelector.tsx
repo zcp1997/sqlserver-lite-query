@@ -115,7 +115,7 @@ export default function SessionSelector() {
             value={activeSession?.id || undefined}
             onValueChange={handleSessionChange}
           >
-            <SelectTrigger className="w-[280px]">
+            <SelectTrigger className="w-[360px]">
               <SelectValue placeholder="选择一个会话">
                 {getActiveSessionDisplay()}
               </SelectValue>
