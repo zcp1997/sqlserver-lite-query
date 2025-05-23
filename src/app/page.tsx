@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import SessionSelector from '@/components/session/SessionSelector'
+import WorkspaceSelector from '@/components/sql/WorkspaceSelector'
 import EditorTabs from '@/components/sql/workbench/EditorTabs'
 import { Button } from '@/components/ui/button'
 import { TrashIcon } from 'lucide-react'
@@ -22,6 +23,7 @@ import ToolbarActions from '@/components/sql/workbench/ToolbarActions'
 import DatabaseObjectsDialog from '@/components/sql/workbench/DatabaseObjectsDialog'
 import SqlScriptsDialog from '@/components/sql/workbench/SqlScriptsDialog'
 import QueryWorkspace from '@/components/sql/workbench/QueryWorkspace'
+import { Workspace } from '@/types/workspace'
 
 export default function SqlWorkbenchPage() {
   const { activeSession } = useSession()
@@ -35,7 +37,12 @@ export default function SqlWorkbenchPage() {
     handleTabChange,
     updateTabContent,
     addNewTab,
-    closeTab
+    closeTab,
+    currentWorkspace,
+    loadWorkspace,
+    saveCurrentWorkspace,
+    setSqlTabs,
+    setActiveSqlTabId
   } = useSqlTabs(activeSession)
 
   // 使用SQL执行逻辑
@@ -54,6 +61,11 @@ export default function SqlWorkbenchPage() {
   // SQL脚本对话框状态
   const [scriptDialogOpen, setScriptDialogOpen] = useState(false)
 
+  // 处理工作区切换
+  const handleWorkspaceChange = (workspace: Workspace) => {
+    loadWorkspace(workspace)
+  }
+
   // 处理执行SQL查询
   const handleExecuteQuery = () => {
     if (activeSession && sqlQuery) {
@@ -67,9 +79,26 @@ export default function SqlWorkbenchPage() {
     setDbObjectDialogOpen(true);
   };
 
+  // 处理清空所有数据
+  const handleClearAll = () => {
+    setSqlQuery('');
+    setSqlTabs([]);
+    setActiveSqlTabId('');
+    localStorage.clear();
+    alert('所有配置已清空');
+    location.href = '/';
+  };
+
   return (
     <div className="flex flex-col h-full max-h-full overflow-hidden">
       <div className="p-2 border-b flex flex-shrink-0 items-center space-x-4">
+        {/* 工作区选择器 */}
+        <WorkspaceSelector
+          currentWorkspace={currentWorkspace}
+          onWorkspaceChange={handleWorkspaceChange}
+          onSaveWorkspace={saveCurrentWorkspace}
+        />
+
         <SessionSelector />
 
         {/* 清空按钮 */}
@@ -95,12 +124,7 @@ export default function SqlWorkbenchPage() {
               <Button variant="outline">取消</Button>
               <Button
                 className="bg-red-500 hover:bg-red-600 text-white"
-                onClick={() => {
-                  setSqlQuery('');
-                  localStorage.clear();
-                  alert('所有配置已清空');
-                  location.href = '/';
-                }}
+                onClick={handleClearAll}
               >
                 确认清空
               </Button>
@@ -116,6 +140,7 @@ export default function SqlWorkbenchPage() {
         onTabChange={handleTabChange}
         onTabClose={closeTab}
         onTabAdd={addNewTab}
+        isExecuting={isExecuting}
       />
 
       {/* 工具栏按钮 */}
