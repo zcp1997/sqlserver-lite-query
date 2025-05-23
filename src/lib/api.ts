@@ -4,17 +4,18 @@ import {
   ConnectionResponse,
   QueryRequest,
   QueryResult,
-  ProcedureQueryRequest,
+  DBObjectInfoRequest,
   TableQueryRequest,
   ColumnQueryRequest,
   ColumnInfo,
   TableInfo,
-  StoredProcedureInfo
+  DatabaseObjectInfo,
+  DatabaseObjectType
 } from '@/types/database'
 
-import {useToast} from '@/hooks/use-toast'
+import { useToast } from '@/hooks/use-toast'
 
-const {toast} = useToast();
+const { toast } = useToast();
 
 // 测试数据库连接
 export async function testConnection(config: ConnectionConfig): Promise<ConnectionResponse> {
@@ -62,7 +63,7 @@ export async function executeQuery(session_id: string, sql: string): Promise<Que
 
     console.log('executeQuery 结果:', result)
 
-    toast.success("查询完成", { description: "数据库语句执行成功", duration: 2000 })
+    toast.success("查询完成", { description: "数据库语句执行成功", duration: 1500 })
     return result
 
   } catch (error) {
@@ -116,20 +117,33 @@ export function isQueryStatement(sql: string): boolean {
 }
 
 // 关键字查询存储过程
-export async function search_stored_procedures(session_id: string, keyword: string): Promise<StoredProcedureInfo[]> {
+export async function search_dbobject_info(session_id: string, keyword: string, databaseObjectType: DatabaseObjectType): Promise<DatabaseObjectInfo[]> {
   if (session_id.trim() === "") {
     return []
   }
   try {
-    const request: ProcedureQueryRequest = {
+    const request: DBObjectInfoRequest = {
       session_id,
       keyword
     }
-    const result = await invoke<StoredProcedureInfo[]>('execute_procedure_query', { request })
-
-    console.log('execute_procedure_query 结果:', result)
-
-    return result
+    if (databaseObjectType === DatabaseObjectType.StoredProcedure) {
+      const result = await invoke<DatabaseObjectInfo[]>('execute_procedure_query', { request })
+      console.log('execute_procedure_query 结果:', result)
+      return result
+    }
+    else if (databaseObjectType === DatabaseObjectType.View) {
+      const result = await invoke<DatabaseObjectInfo[]>('execute_view_query', { request })
+      console.log('execute_view_query 结果:', result)
+      return result
+    }
+    else if (databaseObjectType === DatabaseObjectType.Function) {
+      const result = await invoke<DatabaseObjectInfo[]>('execute_function_query', { request })
+      console.log('execute_function_query 结果:', result)
+      return result
+    }
+    else {
+      return []
+    }
   } catch (error) {
     console.error('执行失败:', error)
     return []

@@ -12,7 +12,10 @@ pub fn run() {
             commands::connection::test_connection,
             commands::connection::execute_query,
             commands::connection::execute_non_query,
+            //commands::connection::execute_table_metadata_query,
             commands::connection::execute_procedure_query,
+            commands::connection::execute_view_query,
+            commands::connection::execute_function_query,
             commands::connection::get_all_tables,
             commands::connection::get_columns_for_table,
         ])

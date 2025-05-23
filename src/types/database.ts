@@ -26,7 +26,7 @@ export interface QueryRequest {
 }
 
 // 查询请求
-export interface ProcedureQueryRequest {
+export interface DBObjectInfoRequest {
   session_id: string
   keyword: string
 }
@@ -56,7 +56,7 @@ export interface ColumnInfo {
 
 // 单个结果集
 export interface ResultSet {
-  columns: string[] 
+  columns: string[]
   column_types?: string[]
   rows: Record<string, any>[]
   affected_rows?: number
@@ -108,10 +108,9 @@ export enum DatabaseObjectType {
   StoredProcedure = 'PROCEDURE',
   Function = 'FUNCTION',
   View = 'VIEW',
-  Index = 'INDEX'
-} 
+}
 
-export interface StoredProcedureInfo {
+export interface DatabaseObjectInfo {
   name: string,
   schema_name: string,
   full_name: string,

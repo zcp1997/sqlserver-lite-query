@@ -89,20 +89,12 @@ export default function SqlEditor({
       onChange(currentValue);
     }
 
-    // 关键修复：确保正确调用父组件的执行函数并传递参数
-    console.log('Calling executeQuery with value:', currentValue);
     executeQuery(currentValue);
   };
 
   const handleEditorDidMount: OnMount = (editor, monacoInstance) => {
     editorRef.current = editor
     monacoRef.current = monacoInstance
-
-    // 添加 Ctrl+Enter 快捷键
-    editor.addCommand(
-      monacoInstance.KeyMod.CtrlCmd | 3,
-      executeCurrentQuery // 使用修复后的执行函数
-    );
 
     // Dispose previous provider if one exists
     if (completionProviderRef.current) {

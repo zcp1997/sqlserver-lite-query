@@ -91,6 +91,42 @@ pub struct ColumnInfo {
     table_name: String,
 }
 
+// New structs for other database objects
+#[derive(Debug, Serialize, Deserialize)]
+pub struct StoredTableInfo {
+    pub name: String,
+    pub schema_name: String,
+    pub full_name: String,
+    pub table_type: String,
+    pub row_count: i64,
+    pub created_date: String,
+    pub modified_date: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct StoredViewInfo {
+    pub name: String,
+    pub schema_name: String,
+    pub full_name: String,
+    pub definition: String,
+    pub created_date: String,
+    pub modified_date: String,
+    pub is_updatable: bool,
+    pub check_option: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct StoredFunctionInfo {
+    pub name: String,
+    pub schema_name: String,
+    pub full_name: String,
+    pub definition: String,
+    pub function_type: String,
+    pub return_type: String,
+    pub created_date: String,
+    pub modified_date: String,
+}
+
 // 辅助函数：从Row中提取值并转换为JSON
 fn get_value_as_json(row: &Row, index: usize) -> Result<serde_json::Value, String> {
     // 尝试各种不同的类型，根据SQL Server常见数据类型
@@ -225,18 +261,18 @@ pub async fn execute_query(
                         let mut columns = Vec::new();
                         let mut column_types = Vec::new();
                         let mut processed_rows = Vec::new();
-                        
+
                         if !result_rows.is_empty() {
                             // 获取列信息 - 只借用第一行来获取列信息
                             let cols = result_rows[0].columns();
                             let mut unnamed_count = 0;
                             let mut column_name_map = HashMap::new();
-                            
+
                             column_types = cols
                                 .iter()
                                 .map(|c| format!("{:?}", c.column_type()))
                                 .collect();
-                            
+
                             // 处理列名
                             for (i, c) in cols.iter().enumerate() {
                                 let name = c.name();
@@ -253,7 +289,7 @@ pub async fn execute_query(
                                     }
                                 }
                             }
-                            
+
                             // 处理所有行 - 使用引用迭代
                             for row in &result_rows {
                                 let mut row_data = HashMap::new();
@@ -267,9 +303,10 @@ pub async fn execute_query(
                                 }
                                 processed_rows.push(row_data);
                             }
-                            
+
                             // 更新列名列表
-                            let mut column_entries: Vec<(&usize, &String)> = column_name_map.iter().collect();
+                            let mut column_entries: Vec<(&usize, &String)> =
+                                column_name_map.iter().collect();
                             column_entries.sort_by_key(|&(idx, _)| *idx);
                             columns = column_entries
                                 .into_iter()
@@ -277,8 +314,8 @@ pub async fn execute_query(
                                 .collect();
                         }
 
-                        let affected_rows_count =  Some(processed_rows.len() as u64);
-                        
+                        let affected_rows_count = Some(processed_rows.len() as u64);
+
                         // 添加到结果集
                         result_sets.push(ResultSet {
                             columns,
@@ -288,12 +325,12 @@ pub async fn execute_query(
                             error: None,
                         });
                     }
-                },
+                }
                 Err(e) => {
                     return Err(DatabaseError::QueryError(format!("处理结果集失败: {}", e)));
                 }
             }
-        },
+        }
         Err(e) => {
             return Err(DatabaseError::QueryError(format!("查询执行失败: {}", e)));
         }
@@ -414,13 +451,12 @@ pub async fn search_stored_procedures(
     Ok(results)
 }
 
-
 pub async fn search_tables(
     client: &mut Client<Compat<TcpStream>>,
     keyword: &str,
 ) -> Result<Vec<TableInfo>, DatabaseError> {
     let mut results = Vec::new();
-    
+
     // 优化的表查询 - 搜索表名称和Schema名称
     let table_query = r#"
         WITH TableMatches AS (
@@ -450,34 +486,34 @@ pub async fn search_tables(
         FROM TableMatches tm
         ORDER BY tm.match_priority, tm.schema_name, tm.table_name
     "#;
-    
+
     let search_pattern = if keyword.is_empty() {
         "%".to_string() // 如果关键字为空，返回所有表
     } else {
         format!("%{}%", keyword)
     };
-    
+
     // 执行查询并处理结果流
     let mut stream = client
         .query(table_query, &[&search_pattern])
         .await
         .map_err(|e| DatabaseError::QueryError(format!("查询表失败: {}", e)))?;
-    
+
     while let Ok(Some(query_item)) = stream.try_next().await {
         // 从QueryItem中提取单行
         if let Some(row) = query_item.into_row() {
             let schema_name: &str = row.get("schema_name").unwrap_or("");
             let table_name: &str = row.get("table_name").unwrap_or("");
-            
+
             let table_info = TableInfo {
                 name: table_name.to_string(),
                 schema: Some(schema_name.to_string()),
             };
-            
+
             results.push(table_info);
         }
     }
-    
+
     Ok(results)
 }
 
@@ -487,11 +523,12 @@ pub async fn search_table_columns(
     schema_name: Option<&str>,
 ) -> Result<Vec<ColumnInfo>, DatabaseError> {
     let mut results = Vec::new();
-    
+
     // 查询指定表的所有列
     let column_query = match schema_name {
         // 如果提供了schema名称，则使用完全限定表名
-        Some(schema) => r#"
+        Some(_schema) => {
+            r#"
             SELECT 
                 c.name as column_name,
                 t.name as data_type,
@@ -514,9 +551,11 @@ pub async fn search_table_columns(
             JOIN sys.types t ON c.user_type_id = t.user_type_id
             WHERE tbl.name = @P1 AND s.name = @P2
             ORDER BY c.column_id
-        "#,
+        "#
+        }
         // 如果没有提供schema名称，则只按表名查询
-        None => r#"
+        None => {
+            r#"
             SELECT 
                 c.name as column_name,
                 t.name as data_type,
@@ -539,8 +578,9 @@ pub async fn search_table_columns(
             WHERE tbl.name = @P1
             ORDER BY c.column_id
         "#
+        }
     };
-    
+
     // 执行查询并处理结果流
     let mut stream = match schema_name {
         Some(schema) => client
@@ -552,23 +592,353 @@ pub async fn search_table_columns(
             .await
             .map_err(|e| DatabaseError::QueryError(format!("查询列失败: {}", e)))?,
     };
-    
+
     while let Ok(Some(query_item)) = stream.try_next().await {
         // 从QueryItem中提取单行
         if let Some(row) = query_item.into_row() {
             let column_name: &str = row.get("column_name").unwrap_or("");
             let data_type: &str = row.get("detailed_type").unwrap_or(""); // 使用详细类型
             let table_name: &str = row.get("table_name").unwrap_or("");
-            
+
             let column_info = ColumnInfo {
                 name: column_name.to_string(),
                 data_type: data_type.to_string(),
                 table_name: table_name.to_string(),
             };
-            
+
             results.push(column_info);
         }
     }
-    
+
+    Ok(results)
+}
+
+// Search tables with metadata and column information
+// pub async fn search_stored_tables(
+//     client: &mut Client<Compat<TcpStream>>,
+//     keyword: &str,
+// ) -> Result<Vec<StoredTableInfo>, DatabaseError> {
+//     let mut basic_results = Vec::new();
+
+//     let table_query = r#"
+//         ;WITH TableMatches AS (
+//             -- 按表名搜索
+//             SELECT DISTINCT
+//                 t.object_id,
+//                 SCHEMA_NAME(t.schema_id) as schema_name,
+//                 t.name as table_name,
+//                 t.type_desc as table_type,
+//                 t.create_date,
+//                 t.modify_date,
+//                 1 as match_priority
+//             FROM sys.tables t
+//             WHERE t.name LIKE @P1
+
+//             UNION
+
+//             -- 按 Schema 名称搜索
+//             SELECT DISTINCT
+//                 t.object_id,
+//                 SCHEMA_NAME(t.schema_id) as schema_name,
+//                 t.name as table_name,
+//                 t.type_desc as table_type,
+//                 t.create_date,
+//                 t.modify_date,
+//                 2 as match_priority
+//             FROM sys.tables t
+//             WHERE SCHEMA_NAME(t.schema_id) LIKE @P1
+//         )
+//         SELECT TOP 50
+//             tm.schema_name,
+//             tm.table_name,
+//             tm.table_type,
+//             tm.create_date,
+//             tm.modify_date,
+//             ISNULL(ddps.row_count, 0) as row_count,
+//             tm.match_priority
+//         FROM TableMatches tm
+//         LEFT JOIN sys.dm_db_partition_stats ddps ON tm.object_id = ddps.object_id AND ddps.index_id < 2
+//         ORDER BY tm.match_priority, tm.schema_name, tm.table_name
+//     "#;
+
+//     let search_pattern = format!("%{}%", keyword);
+//     let mut stream = client
+//         .query(table_query, &[&search_pattern])
+//         .await
+//         .map_err(|e| DatabaseError::QueryError(format!("查询表失败: {}", e)))?;
+
+//     while let Ok(Some(query_item)) = stream.try_next().await {
+//         if let Some(row) = query_item.into_row() {
+//             let schema_name: &str = row.get("schema_name").unwrap_or("");
+//             let table_name: &str = row.get("table_name").unwrap_or("");
+//             let table_type: &str = row.get("table_type").unwrap_or("");
+//             let row_count: i64 = row.get("row_count").unwrap_or(0);
+//             let create_date: chrono::NaiveDateTime = row.get("create_date").unwrap_or_default();
+//             let modify_date: chrono::NaiveDateTime = row.get("modify_date").unwrap_or_default();
+
+//             basic_results.push((
+//                 schema_name.to_string(),
+//                 table_name.to_string(),
+//                 table_type.to_string(),
+//                 row_count,
+//                 create_date.format("%Y-%m-%d %H:%M:%S").to_string(),
+//                 modify_date.format("%Y-%m-%d %H:%M:%S").to_string(),
+//             ));
+//         }
+//     }
+
+//     //drop(stream);
+
+//     let mut results = Vec::new();
+//     for (schema_name, table_name, table_type, row_count, created_date, modified_date) in
+//         basic_results
+//     {
+//         // let mut columns = Vec::new();
+
+//         // let column_query = r#"
+//         //     SELECT
+//         //         c.name as column_name,
+//         //         t.name as data_type,
+//         //         c.max_length,
+//         //         c.precision,
+//         //         c.scale,
+//         //         c.is_nullable,
+//         //         c.is_identity,
+//         //         CASE WHEN pk.column_name IS NOT NULL THEN 1 ELSE 0 END as is_primary_key
+//         //     FROM sys.columns c
+//         //     INNER JOIN sys.types t ON c.user_type_id = t.user_type_id
+//         //     LEFT JOIN (
+//         //         SELECT ku.column_name
+//         //         FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc
+//         //         INNER JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE ku ON tc.constraint_name = ku.constraint_name
+//         //         WHERE tc.constraint_type = 'PRIMARY KEY'
+//         //         AND tc.table_schema = @P1
+//         //         AND tc.table_name = @P2
+//         //     ) pk ON c.name = pk.column_name
+//         //     WHERE c.object_id = OBJECT_ID(@P1 + '.' + @P2)
+//         //     ORDER BY c.column_id
+//         // "#;
+
+//         // let mut stream = client
+//         //     .query(column_query, &[&schema_name, &table_name])
+//         //     .await
+//         //     .map_err(|e| DatabaseError::QueryError(format!("查询列信息失败: {}", e)))?;
+
+//         // while let Ok(Some(query_item)) = stream.try_next().await {
+//         //     if let Some(row) = query_item.into_row() {
+//         //         let column_info = StoredColumnInfo {
+//         //             name: row.get::<&str, _>("column_name").unwrap_or("").to_string(),
+//         //             data_type: row.get::<&str, _>("data_type").unwrap_or("").to_string(),
+//         //             max_length: row.get("max_length").unwrap_or(0),
+//         //             precision: row.get("precision").unwrap_or(0),
+//         //             scale: row.get("scale").unwrap_or(0),
+//         //             is_nullable: row.get("is_nullable").unwrap_or(false),
+//         //             is_identity: row.get("is_identity").unwrap_or(false),
+//         //             is_primary_key: row.get::<i32, _>("is_primary_key").unwrap_or(0) == 1,
+//         //         };
+//         //         columns.push(column_info);
+//         //     }
+//         // }
+
+//         let table_info = StoredTableInfo {
+//             name: table_name.clone(),
+//             schema_name: schema_name.clone(),
+//             full_name: format!("[{}].[{}]", schema_name, table_name),
+//             table_type,
+//             row_count,
+//             created_date,
+//             modified_date
+//         };
+//         results.push(table_info);
+//     }
+
+//     Ok(results)
+// }
+
+// Search views with definition and metadata
+pub async fn search_stored_views(
+    client: &mut Client<Compat<TcpStream>>,
+    keyword: &str,
+) -> Result<Vec<StoredViewInfo>, DatabaseError> {
+    let mut results = Vec::new();
+
+    let view_query = r#"
+        ;WITH ViewMatches AS (
+            -- 按视图名称搜索
+            SELECT DISTINCT
+                v.object_id,
+                SCHEMA_NAME(v.schema_id) as schema_name,
+                v.name as view_name,
+                v.create_date,
+                v.modify_date,
+                1 as match_priority
+            FROM sys.views v
+            WHERE v.name LIKE @P1
+            
+            UNION
+            
+            -- 按 Schema 名称搜索
+            SELECT DISTINCT
+                v.object_id,
+                SCHEMA_NAME(v.schema_id) as schema_name,
+                v.name as view_name,
+                v.create_date,
+                v.modify_date,
+                2 as match_priority
+            FROM sys.views v
+            WHERE SCHEMA_NAME(v.schema_id) LIKE @P1
+        )
+        SELECT TOP 50
+            vm.schema_name,
+            vm.view_name,
+            vm.create_date,
+            vm.modify_date,
+            m.definition,
+            ISNULL(iv.is_updatable, 'NO') as is_updatable,
+            ISNULL(iv.check_option, 'NONE') as check_option,
+            vm.match_priority
+        FROM ViewMatches vm
+        INNER JOIN sys.sql_modules m ON vm.object_id = m.object_id
+        LEFT JOIN INFORMATION_SCHEMA.VIEWS iv ON vm.schema_name = iv.table_schema AND vm.view_name = iv.table_name
+        ORDER BY vm.match_priority, vm.schema_name, vm.view_name
+    "#;
+
+    let search_pattern = format!("%{}%", keyword);
+    let mut stream = client
+        .query(view_query, &[&search_pattern])
+        .await
+        .map_err(|e| DatabaseError::QueryError(format!("查询视图失败: {}", e)))?;
+
+    while let Ok(Some(query_item)) = stream.try_next().await {
+        if let Some(row) = query_item.into_row() {
+            let schema_name: &str = row.get("schema_name").unwrap_or("");
+            let view_name: &str = row.get("view_name").unwrap_or("");
+            let definition: &str = row.get("definition").unwrap_or("");
+            let is_updatable: &str = row.get("is_updatable").unwrap_or("NO");
+            let check_option: &str = row.get("check_option").unwrap_or("NONE");
+            let create_date: chrono::NaiveDateTime = row.get("create_date").unwrap_or_default();
+            let modify_date: chrono::NaiveDateTime = row.get("modify_date").unwrap_or_default();
+
+            let view_info = StoredViewInfo {
+                name: view_name.to_string(),
+                schema_name: schema_name.to_string(),
+                full_name: format!("[{}].[{}]", schema_name, view_name),
+                definition: definition.to_string(),
+                created_date: create_date.format("%Y-%m-%d %H:%M:%S").to_string(),
+                modified_date: modify_date.format("%Y-%m-%d %H:%M:%S").to_string(),
+                is_updatable: is_updatable == "YES",
+                check_option: check_option.to_string(),
+            };
+            results.push(view_info);
+        }
+    }
+    Ok(results)
+}
+
+// Search functions with parameters and metadata
+pub async fn search_stored_functions(
+    client: &mut Client<Compat<TcpStream>>,
+    keyword: &str,
+) -> Result<Vec<StoredFunctionInfo>, DatabaseError> {
+    let mut basic_results = Vec::new();
+
+    let function_query = r#"
+        ;WITH FunctionMatches AS (
+            SELECT DISTINCT
+                o.object_id,
+                SCHEMA_NAME(o.schema_id) as schema_name,
+                o.name as function_name,
+                o.type_desc as function_type,
+                o.create_date,
+                o.modify_date,
+                1 as match_priority
+            FROM sys.objects o
+            WHERE o.type IN ('FN', 'IF', 'TF', 'FS', 'FT') 
+              AND o.name LIKE @P1
+            
+            UNION
+            
+            SELECT DISTINCT
+                o.object_id,
+                SCHEMA_NAME(o.schema_id) as schema_name,
+                o.name as function_name,
+                o.type_desc as function_type,
+                o.create_date,
+                o.modify_date,
+                2 as match_priority
+            FROM sys.objects o
+            WHERE o.type IN ('FN', 'IF', 'TF', 'FS', 'FT') 
+              AND SCHEMA_NAME(o.schema_id) LIKE @P1
+        )
+        SELECT TOP 50
+            fm.schema_name,
+            fm.function_name,
+            fm.function_type,
+            fm.create_date,
+            fm.modify_date,
+            m.definition,
+            ISNULL(rt.name, 'TABLE') as return_type,
+            fm.match_priority
+        FROM FunctionMatches fm
+        INNER JOIN sys.sql_modules m ON fm.object_id = m.object_id
+        LEFT JOIN sys.parameters p ON fm.object_id = p.object_id AND p.parameter_id = 0
+        LEFT JOIN sys.types rt ON p.user_type_id = rt.user_type_id
+        ORDER BY fm.match_priority, fm.schema_name, fm.function_name
+    "#;
+
+    let search_pattern = format!("%{}%", keyword);
+    let mut stream = client
+        .query(function_query, &[&search_pattern])
+        .await
+        .map_err(|e| DatabaseError::QueryError(format!("查询函数失败: {}", e)))?;
+
+    while let Ok(Some(query_item)) = stream.try_next().await {
+        if let Some(row) = query_item.into_row() {
+            let schema_name: &str = row.get("schema_name").unwrap_or("");
+            let function_name: &str = row.get("function_name").unwrap_or("");
+            let function_type: &str = row.get("function_type").unwrap_or("");
+            let definition: &str = row.get("definition").unwrap_or("");
+            let return_type: &str = row.get("return_type").unwrap_or("");
+            let create_date: chrono::NaiveDateTime = row.get("create_date").unwrap_or_default();
+            let modify_date: chrono::NaiveDateTime = row.get("modify_date").unwrap_or_default();
+
+            basic_results.push((
+                schema_name.to_string(),
+                function_name.to_string(),
+                function_type.to_string(),
+                definition.to_string(),
+                return_type.to_string(),
+                create_date.format("%Y-%m-%d %H:%M:%S").to_string(),
+                modify_date.format("%Y-%m-%d %H:%M:%S").to_string(),
+            ));
+        }
+    }
+
+    let mut results = Vec::new();
+
+    for (
+        schema_name,
+        function_name,
+        function_type,
+        definition,
+        return_type,
+        created_date,
+        modified_date,
+    ) in basic_results
+    {
+        let function_info = StoredFunctionInfo {
+            name: function_name.clone(),
+            schema_name: schema_name.clone(),
+            full_name: format!("[{}].[{}]", schema_name, function_name),
+            definition,
+            function_type,
+            return_type,
+            created_date,
+            modified_date,
+        };
+
+        results.push(function_info);
+    }
+
     Ok(results)
 }

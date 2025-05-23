@@ -1,13 +1,19 @@
-use crate::database::{ConnectionConfig, create_connection, execute_query as db_execute_query, execute_non_query as db_execute_non_query, QueryResult, search_stored_procedures, StoredProcedureInfo, search_tables, search_table_columns, TableInfo, ColumnInfo};
+use crate::database::{
+    create_connection, execute_non_query as db_execute_non_query,
+    execute_query as db_execute_query, search_stored_functions, search_stored_procedures,
+    search_stored_views, search_table_columns, search_tables, ColumnInfo, ConnectionConfig,
+    QueryResult, StoredFunctionInfo, StoredProcedureInfo, StoredViewInfo, TableInfo,
+};
+use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tokio::sync::Mutex;
 use uuid::Uuid;
-use once_cell::sync::Lazy;
 
 // 保存活动连接的映射，键为会话ID，值为连接客户端
 type ClientType = tiberius::Client<tokio_util::compat::Compat<tokio::net::TcpStream>>;
-static ACTIVE_CONNECTIONS: Lazy<Mutex<HashMap<String, ClientType>>> = Lazy::new(|| Mutex::new(HashMap::new()));
+static ACTIVE_CONNECTIONS: Lazy<Mutex<HashMap<String, ClientType>>> =
+    Lazy::new(|| Mutex::new(HashMap::new()));
 
 // 测试连接响应
 #[derive(Debug, Serialize)]
@@ -26,15 +32,15 @@ pub struct QueryRequest {
 
 // 查询请求
 #[derive(Debug, Deserialize)]
-pub struct ProcedureQueryRequest {
+pub struct KeywordQueryRequest {
     pub session_id: String,
     pub keyword: String,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct TableQueryRequest {
-    session_id: String,
-    keyword: String, // Optional search keyword for filtering tables
+    pub session_id: String,
+    pub keyword: String, // Optional search keyword for filtering tables
 }
 
 #[derive(Debug, Deserialize)]
@@ -47,25 +53,28 @@ pub struct ColumnQueryRequest {
 // 测试连接
 #[tauri::command]
 pub async fn test_connection(config: ConnectionConfig) -> ConnectionResponse {
-    println!("测试连接请求，服务器: {}, 数据库: {}", config.server, config.database);
-    
+    println!(
+        "测试连接请求，服务器: {}, 数据库: {}",
+        config.server, config.database
+    );
+
     match create_connection(&config).await {
         Ok(client) => {
             // 生成会话ID
             let session_id = Uuid::new_v4().to_string();
             println!("连接成功，生成会话ID: {}", session_id);
-            
+
             // 存储连接
             let mut connections = ACTIVE_CONNECTIONS.lock().await;
             connections.insert(session_id.clone(), client);
             println!("会话已存储，当前活动会话数: {}", connections.len());
-            
+
             ConnectionResponse {
                 success: true,
                 message: "连接成功".to_string(),
                 session_id: Some(session_id),
             }
-        },
+        }
         Err(err) => {
             println!("连接失败: {}", err);
             ConnectionResponse {
@@ -73,7 +82,7 @@ pub async fn test_connection(config: ConnectionConfig) -> ConnectionResponse {
                 message: format!("连接失败: {}", err),
                 session_id: None,
             }
-        },
+        }
     }
 }
 
@@ -82,38 +91,43 @@ pub async fn test_connection(config: ConnectionConfig) -> ConnectionResponse {
 pub async fn execute_query(request: QueryRequest) -> Result<QueryResult, String> {
     println!("执行查询请求，会话ID: {}", request.session_id);
     println!("SQL: {}", request.sql);
-    
+
     let mut connections = ACTIVE_CONNECTIONS.lock().await;
-    
+
     if let Some(client) = connections.get_mut(&request.session_id) {
         match db_execute_query(client, &request.sql).await {
             Ok(result) => {
                 println!("查询执行成功，结果集数量: {}", result.result_sets.len());
-                
+
                 // 检查结果集是否为空
                 if result.result_sets.is_empty() {
                     println!("警告: 返回的结果集为空，添加一个空结果集");
                     let mut result_with_empty = result;
-                    result_with_empty.result_sets.push(crate::database::ResultSet {
-                        columns: Vec::new(),
-                        column_types: Vec::new(),
-                        rows: Vec::new(),
-                        affected_rows: Some(0),
-                        error: None,
-                    });
+                    result_with_empty
+                        .result_sets
+                        .push(crate::database::ResultSet {
+                            columns: Vec::new(),
+                            column_types: Vec::new(),
+                            rows: Vec::new(),
+                            affected_rows: Some(0),
+                            error: None,
+                        });
                     Ok(result_with_empty)
                 } else {
                     Ok(result)
                 }
-            },
+            }
             Err(err) => {
                 let error_msg = format!("查询执行错误: {}", err);
                 println!("{}", error_msg);
                 Err(error_msg)
-            },
+            }
         }
     } else {
-        let error_msg = format!("会话不存在或已过期，请重新连接，会话ID: {}", request.session_id);
+        let error_msg = format!(
+            "会话不存在或已过期，请重新连接，会话ID: {}",
+            request.session_id
+        );
         println!("{}", error_msg);
         Err(error_msg)
     }
@@ -124,80 +138,189 @@ pub async fn execute_query(request: QueryRequest) -> Result<QueryResult, String>
 pub async fn execute_non_query(request: QueryRequest) -> Result<QueryResult, String> {
     println!("执行非查询请求，会话ID: {}", request.session_id);
     println!("SQL: {}", request.sql);
-    
+
     let mut connections = ACTIVE_CONNECTIONS.lock().await;
-    
+
     if let Some(client) = connections.get_mut(&request.session_id) {
         println!("找到会话，开始执行非查询操作");
         match db_execute_non_query(client, &request.sql).await {
             Ok(result) => {
                 println!("非查询操作执行成功");
                 Ok(result)
-            },
+            }
             Err(err) => {
                 let error_msg = format!("执行错误: {}", err);
                 println!("{}", error_msg);
                 Err(error_msg)
-            },
+            }
         }
     } else {
-        let error_msg = format!("会话不存在或已过期，请重新连接，会话ID: {}", request.session_id);
+        let error_msg = format!(
+            "会话不存在或已过期，请重新连接，会话ID: {}",
+            request.session_id
+        );
         println!("{}", error_msg);
         Err(error_msg)
     }
-} 
+}
+
+// // 执行关键字查询表结构
+// #[tauri::command]
+// pub async fn execute_table_metadata_query(
+//     request: KeywordQueryRequest,
+// ) -> Result<Vec<StoredTableInfo>, String> {
+//     println!("执行存储过程查询，会话ID: {}", request.session_id);
+//     println!("keyword: {}", request.keyword);
+
+//     let mut connections = ACTIVE_CONNECTIONS.lock().await;
+
+//     if let Some(client) = connections.get_mut(&request.session_id) {
+//         println!("找到会话，开始执行执行存储过程查询");
+//         match search_stored_tables(client, &request.keyword).await {
+//             Ok(result) => {
+//                 println!("执行存储过程查询成功");
+//                 Ok(result)
+//             }
+//             Err(err) => {
+//                 let error_msg = format!("执行错误: {}", err);
+//                 println!("{}", error_msg);
+//                 Err(error_msg)
+//             }
+//         }
+//     } else {
+//         let error_msg = format!(
+//             "会话不存在或已过期，请重新连接，会话ID: {}",
+//             request.session_id
+//         );
+//         println!("{}", error_msg);
+//         Err(error_msg)
+//     }
+// }
 
 // 执行关键字查询存储过程
 #[tauri::command]
-pub async fn execute_procedure_query(request: ProcedureQueryRequest) -> Result<Vec<StoredProcedureInfo>, String> {
+pub async fn execute_procedure_query(
+    request: KeywordQueryRequest,
+) -> Result<Vec<StoredProcedureInfo>, String> {
     println!("执行存储过程查询，会话ID: {}", request.session_id);
     println!("keyword: {}", request.keyword);
-    
+
     let mut connections = ACTIVE_CONNECTIONS.lock().await;
-    
+
     if let Some(client) = connections.get_mut(&request.session_id) {
         println!("找到会话，开始执行执行存储过程查询");
         match search_stored_procedures(client, &request.keyword).await {
             Ok(result) => {
                 println!("执行存储过程查询成功");
                 Ok(result)
-            },
+            }
             Err(err) => {
                 let error_msg = format!("执行错误: {}", err);
                 println!("{}", error_msg);
                 Err(error_msg)
-            },
+            }
         }
     } else {
-        let error_msg = format!("会话不存在或已过期，请重新连接，会话ID: {}", request.session_id);
+        let error_msg = format!(
+            "会话不存在或已过期，请重新连接，会话ID: {}",
+            request.session_id
+        );
         println!("{}", error_msg);
         Err(error_msg)
     }
-} 
+}
 
+// 执行关键字查询视图
+#[tauri::command]
+pub async fn execute_view_query(
+    request: KeywordQueryRequest,
+) -> Result<Vec<StoredViewInfo>, String> {
+    println!("执行视图查询，会话ID: {}", request.session_id);
+    println!("keyword: {}", request.keyword);
+
+    let mut connections = ACTIVE_CONNECTIONS.lock().await;
+
+    if let Some(client) = connections.get_mut(&request.session_id) {
+        println!("找到会话，开始执行执行视图查询");
+        match search_stored_views(client, &request.keyword).await {
+            Ok(result) => {
+                println!("执行视图查询成功");
+                Ok(result)
+            }
+            Err(err) => {
+                let error_msg = format!("执行错误: {}", err);
+                println!("{}", error_msg);
+                Err(error_msg)
+            }
+        }
+    } else {
+        let error_msg = format!(
+            "会话不存在或已过期，请重新连接，会话ID: {}",
+            request.session_id
+        );
+        println!("{}", error_msg);
+        Err(error_msg)
+    }
+}
+
+// 执行关键字查询函数
+#[tauri::command]
+pub async fn execute_function_query(
+    request: KeywordQueryRequest,
+) -> Result<Vec<StoredFunctionInfo>, String> {
+    println!("执行函数查询，会话ID: {}", request.session_id);
+    println!("keyword: {}", request.keyword);
+
+    let mut connections = ACTIVE_CONNECTIONS.lock().await;
+
+    if let Some(client) = connections.get_mut(&request.session_id) {
+        println!("找到会话，开始执行执行函数查询");
+        match search_stored_functions(client, &request.keyword).await {
+            Ok(result) => {
+                println!("执行函数查询成功");
+                Ok(result)
+            }
+            Err(err) => {
+                let error_msg = format!("执行错误: {}", err);
+                println!("{}", error_msg);
+                Err(error_msg)
+            }
+        }
+    } else {
+        let error_msg = format!(
+            "会话不存在或已过期，请重新连接，会话ID: {}",
+            request.session_id
+        );
+        println!("{}", error_msg);
+        Err(error_msg)
+    }
+}
 
 #[tauri::command]
 pub async fn get_all_tables(request: TableQueryRequest) -> Result<Vec<TableInfo>, String> {
     println!("执行表查询，会话ID: {}", request.session_id);
     println!("keyword: {}", request.keyword);
-    
+
     let mut connections = ACTIVE_CONNECTIONS.lock().await;
-    
+
     if let Some(client) = connections.get_mut(&request.session_id) {
         println!("找到会话，开始执行表查询");
         match search_tables(client, &request.keyword).await {
             Ok(result) => {
                 println!("执行表查询成功");
                 Ok(result)
-            },
+            }
             Err(err) => {
                 let error_msg = format!("执行错误: {}", err);
                 println!("{}", error_msg);
                 Err(error_msg)
-            },
+            }
         }
     } else {
-        let error_msg = format!("会话不存在或已过期，请重新连接，会话ID: {}", request.session_id);
+        let error_msg = format!(
+            "会话不存在或已过期，请重新连接，会话ID: {}",
+            request.session_id
+        );
         println!("{}", error_msg);
         Err(error_msg)
     }
@@ -207,28 +330,33 @@ pub async fn get_all_tables(request: TableQueryRequest) -> Result<Vec<TableInfo>
 pub async fn get_columns_for_table(request: ColumnQueryRequest) -> Result<Vec<ColumnInfo>, String> {
     println!("执行列查询，会话ID: {}", request.session_id);
     println!("table_name: {}", request.table_name);
-    
+
     if let Some(schema) = &request.schema_name {
         println!("schema_name: {}", schema);
     }
-    
+
     let mut connections = ACTIVE_CONNECTIONS.lock().await;
-    
+
     if let Some(client) = connections.get_mut(&request.session_id) {
         println!("找到会话，开始执行列查询");
-        match search_table_columns(client, &request.table_name, request.schema_name.as_deref()).await {
+        match search_table_columns(client, &request.table_name, request.schema_name.as_deref())
+            .await
+        {
             Ok(result) => {
                 println!("执行列查询成功");
                 Ok(result)
-            },
+            }
             Err(err) => {
                 let error_msg = format!("执行错误: {}", err);
                 println!("{}", error_msg);
                 Err(error_msg)
-            },
+            }
         }
     } else {
-        let error_msg = format!("会话不存在或已过期，请重新连接，会话ID: {}", request.session_id);
+        let error_msg = format!(
+            "会话不存在或已过期，请重新连接，会话ID: {}",
+            request.session_id
+        );
         println!("{}", error_msg);
         Err(error_msg)
     }

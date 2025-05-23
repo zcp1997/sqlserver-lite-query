@@ -1,8 +1,6 @@
 // components/sql/EditorTabs.tsx
-import { useState, useEffect } from 'react'
 import { X, Plus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { useSession } from '@/components/session/SessionContext'
 
 export interface EditorTab {
   id: string
