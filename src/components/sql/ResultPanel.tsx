@@ -2,7 +2,7 @@
 
 import React, { useMemo, useState, useCallback } from 'react'
 import { AgGridReact } from 'ag-grid-react'
-import { AllCommunityModule, ModuleRegistry, ColDef, GridReadyEvent, GridApi } from 'ag-grid-community'
+import { AllCommunityModule, ModuleRegistry, ColDef, GridReadyEvent, GridApi, themeQuartz, colorSchemeDark, colorSchemeLightWarm } from 'ag-grid-community'
 import { AG_GRID_LOCALE_CN } from '@ag-grid-community/locale'
 import { QueryResult, ResultSet } from '@/types/database'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -21,6 +21,7 @@ import {
   XIcon,
   SearchIcon
 } from 'lucide-react'
+import { useTheme } from "next-themes"
 
 ModuleRegistry.registerModules([AllCommunityModule]);
 
@@ -44,6 +45,15 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, isLoading = false }) 
   const [quickFilterText, setQuickFilterText] = useState('');
   const [columnSearchText, setColumnSearchText] = useState('');
   const [highlightedColumn, setHighlightedColumn] = useState<string | null>(null);
+
+  const { resolvedTheme } = useTheme()
+
+  // 根据 resolvedTheme 动态生成 theme
+  const myTheme = useMemo(() => {
+    return resolvedTheme === "dark"
+      ? themeQuartz.withPart(colorSchemeDark)
+      : themeQuartz.withPart(colorSchemeLightWarm)
+  }, [resolvedTheme])
 
   // 处理结果集数据，生成标签页数据
   const tabsData = useMemo<GridTabData[]>(() => {
@@ -418,6 +428,7 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, isLoading = false }) 
                   // 显示查询结果表格
                   <div className="ag-theme-alpine h-full w-full">
                     <AgGridReact
+                      theme={myTheme}
                       gridOptions={gridOptions}
                       rowData={tab.resultSet.rows}
                       columnDefs={generateColumnDefs(tab.resultSet)}
