@@ -140,9 +140,9 @@ export default function DatabaseObjectsDialog({
           {/* 左侧列表 */}
           <div className="w-1/3 border-r overflow-auto">
             <ul className="divide-y">
-              {dbObjects.map(obj => (
+              {dbObjects.map((obj, index) => (
                 <li
-                  key={obj.name}
+                  key={`${obj.name}-${index}`}
                   className={`p-2 hover:bg-muted cursor-pointer ${selectedObject?.name === obj.name ? 'bg-muted' : ''}`}
                   onClick={() => setSelectedObject(obj)}
                 >

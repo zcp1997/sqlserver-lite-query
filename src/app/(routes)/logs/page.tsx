@@ -22,6 +22,7 @@ const PAGE_SIZE = 15
 export default function SqlQueryLog() {
   const [logs, setLogs] = useState<QueryLogItem[]>([])
   const [currentPage, setCurrentPage] = useState(1)
+  const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set())
 
   useEffect(() => {
     const raw = localStorage.getItem("sqlserver-query-history")

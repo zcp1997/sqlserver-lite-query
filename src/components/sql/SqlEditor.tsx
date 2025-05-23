@@ -380,13 +380,30 @@ export default function SqlEditor({
         options={{
           minimap: { enabled: false },
           scrollBeyondLastLine: false,
-          wordWrap: 'on',
           wrappingIndent: 'indent',
           automaticLayout: true,
           tabSize: 2,
-          fontSize: 14,
           readOnly,
-          fontFamily: 'Monaco, "Courier New", monospace',
+          fontSize: 14,
+          fontFamily: [
+            '"Maple Mono"',           // 主字体（英文）
+            '"Source Code Pro"',      // 更好的中文兼容性
+            '"Microsoft YaHei Mono"', // Windows 中文等宽
+            '"PingFang SC"',          // macOS 中文
+            '"Noto Sans Mono CJK SC"',// Linux 中文等宽
+            '"Consolas"',             // Windows fallback
+            '"Monaco"',               // macOS fallback
+            'Courier New'               // 系统 fallback
+          ].join(', '),
+          fontLigatures: true,
+          // 增加这些配置改善中文显示
+          wordWrap: 'on',
+          wordWrapColumn: 120,
+          renderWhitespace: 'selection',
+          unicodeHighlight: {
+            ambiguousCharacters: false, // 避免中文字符被高亮为可疑字符
+            invisibleCharacters: false
+          },
           fixedOverflowWidgets: true,
           suggestOnTriggerCharacters: true,
           acceptSuggestionOnEnter: 'on',

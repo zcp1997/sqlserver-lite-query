@@ -49,6 +49,7 @@ export default {
       },
       fontFamily: {
         sans: ["var(--font-sans)"],
+        maple: ["Maple Mono", "monospace"],
       },
     },
   },// eslint-disable-next-line @typescript-eslint/no-require-imports

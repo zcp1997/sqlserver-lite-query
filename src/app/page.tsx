@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import SessionSelector from '@/components/session/SessionSelector'
-import EditorTabs from '@/components/sql/EditorTabs'
+import EditorTabs from '@/components/sql/workbench/EditorTabs'
 import { Button } from '@/components/ui/button'
 import { TrashIcon } from 'lucide-react'
 import {

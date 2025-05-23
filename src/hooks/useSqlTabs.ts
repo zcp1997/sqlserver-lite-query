@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { v4 as uuidv4 } from 'uuid'
-import { EditorTab } from '@/components/sql/EditorTabs'
+import { EditorTab } from '@/components/sql/workbench/EditorTabs'
 import { QuerySession as Session } from '@/types/database'
 
 export function useSqlTabs(activeSession: Session | null) {
