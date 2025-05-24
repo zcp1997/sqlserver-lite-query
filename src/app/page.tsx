@@ -61,16 +61,44 @@ export default function SqlWorkbenchPage() {
   // SQL脚本对话框状态
   const [scriptDialogOpen, setScriptDialogOpen] = useState(false)
 
+  // 新增：存储选中文本的状态
+  const [selectedText, setSelectedText] = useState<string>('')
+
+  // 新增：处理选中文本变化
+  const handleSelectionChange = (selectedText: string) => {
+    setSelectedText(selectedText)
+  }
+
   // 处理工作区切换
   const handleWorkspaceChange = (workspace: Workspace) => {
     loadWorkspace(workspace)
   }
 
-  // 处理执行SQL查询
+  // 修改：处理执行SQL查询，支持选中文本参数
   const handleExecuteQuery = () => {
-    if (activeSession && sqlQuery) {
-      executeCurrentQuery(activeSession, sqlQuery);
+    if (!activeSession) {
+      console.log('No active session available');
+      return;
     }
+
+    let textToExecute = sqlQuery;
+
+    if (selectedText && selectedText.trim() && selectedText.trim() !== '') {
+      console.log(`textToExecute changed to ${selectedText.trim()}`);
+      textToExecute = selectedText.trim();
+    }
+
+    if (!textToExecute) {
+      console.log('No query text to execute');
+      return;
+    }
+
+    console.log('Main page executing query:', {
+      sqlQuery: sqlQuery,
+      selectedText: selectedText
+    });
+
+    executeCurrentQuery(activeSession, textToExecute);
   };
 
   // 处理打开数据库对象对话框
@@ -143,18 +171,19 @@ export default function SqlWorkbenchPage() {
         isExecuting={isExecuting}
       />
 
-      {/* 工具栏按钮 */}
+      {/* 工具栏按钮 - 传递选中文本 */}
       <ToolbarActions
         activeSession={activeSession}
         onOpenDbObjectDialog={handleOpenDbObjectDialog}
         onOpenScriptDialog={() => setScriptDialogOpen(true)}
         isExecuting={isExecuting}
-        onExecuteQuery={handleExecuteQuery}
+        onExecuteQuery={handleExecuteQuery} // 注意：不再传递参数
         onStopExecution={stopExecution}
         sqlQuery={sqlQuery}
+        selectedText={selectedText} // 新增：传递选中文本
       />
 
-      {/* 主要查询工作区 */}
+      {/* 主要查询工作区 - 传递选中文本变化回调 */}
       <QueryWorkspace
         sqlQuery={sqlQuery}
         updateTabContent={updateTabContent}
@@ -162,7 +191,7 @@ export default function SqlWorkbenchPage() {
         isExecuting={isExecuting}
         queryResult={queryResult}
         error={error}
-        onExecuteQuery={handleExecuteQuery}
+        onSelectionChange={handleSelectionChange} // 新增
       />
 
       {/* 数据库对象对话框 */}

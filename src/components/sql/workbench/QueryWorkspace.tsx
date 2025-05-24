@@ -11,7 +11,7 @@ interface QueryWorkspaceProps {
   isExecuting: boolean;
   queryResult: QueryResult | null;
   error: string | null;
-  onExecuteQuery: () => void;
+  onSelectionChange?: (selectedText: string) => void; // 新增
 }
 
 export default function QueryWorkspace({
@@ -21,7 +21,7 @@ export default function QueryWorkspace({
   isExecuting,
   queryResult,
   error,
-  onExecuteQuery
+  onSelectionChange
 }: QueryWorkspaceProps) {
   return (
     <ResizablePanelGroup
@@ -36,8 +36,8 @@ export default function QueryWorkspace({
               <SqlEditor
                 value={sqlQuery}
                 onChange={updateTabContent}
-                executeQuery={onExecuteQuery}
                 readOnly={isExecuting}
+                onSelectionChange={onSelectionChange}
               />
             </div>
           )}

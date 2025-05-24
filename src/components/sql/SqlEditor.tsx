@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Editor, { OnMount, Monaco as MonacoReact, loader } from '@monaco-editor/react'
 import { useTheme } from 'next-themes'
 import * as monaco from 'monaco-editor';
@@ -12,8 +12,8 @@ loader.config({ monaco });
 interface SqlEditorProps {
   value: string
   onChange: (value: string) => void
-  executeQuery?: (queryText?: string) => void
   readOnly?: boolean
+  onSelectionChange?: (selectedText: string) => void // 新增
 }
 
 // SQL关键词
@@ -34,14 +34,17 @@ const baseSqlKeywordsArray = [
 export default function SqlEditor({
   value,
   onChange,
-  executeQuery,
-  readOnly = false
+  readOnly = false,
+  onSelectionChange
 }: SqlEditorProps) {
   const editorRef = useRef<any>(null)
   const monacoRef = useRef<MonacoReact | null>(null)
   const completionProviderRef = useRef<monaco.IDisposable | null>(null)
   const { theme } = useTheme()
   const { activeSession } = useSession()
+
+  // 新增：跟踪选中的文本
+  const [selectedSqlQuery, setSelectedSqlQuery] = useState<string>('')
 
   // Helper to create completion items consistently
   const createCompletionItem = (
@@ -68,33 +71,22 @@ export default function SqlEditor({
     return item;
   };
 
-  // 修复：创建一个执行函数，获取当前编辑器内容并传递给父组件
-  const executeCurrentQuery = () => {
-    if (!executeQuery || !editorRef.current) {
-      console.log('executeQuery not available or editor not ready');
-      return;
-    }
-
-    // 直接从编辑器获取当前内容
-    const currentValue = editorRef.current.getValue();
-    console.log('Execute query called! Current editor value:', currentValue);
-
-    if (!currentValue.trim()) {
-      console.log('Query is empty, not executing');
-      return;
-    }
-
-    // 如果状态还没更新，先更新状态
-    if (currentValue !== value) {
-      onChange(currentValue);
-    }
-
-    executeQuery(currentValue);
-  };
-
   const handleEditorDidMount: OnMount = (editor, monacoInstance) => {
     editorRef.current = editor
     monacoRef.current = monacoInstance
+
+    // 新增：监听选择变化事件
+    editor.onDidChangeCursorSelection((e) => {
+      const selection = editor.getSelection();
+      if (selection && !selection.isEmpty()) {
+        const selectedText = editor.getModel()?.getValueInRange(selection) || '';
+        setSelectedSqlQuery(selectedText);
+        onSelectionChange?.(selectedText); // 新增：通知父组件
+      } else {
+        setSelectedSqlQuery('');
+        onSelectionChange?.(''); // 新增：通知父组件
+      }
+    });
 
     // Dispose previous provider if one exists
     if (completionProviderRef.current) {
