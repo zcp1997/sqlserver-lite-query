@@ -30,6 +30,7 @@ import {
 import { useSession } from '@/components/session/SessionContext'
 import { WorkspaceService } from '@/lib/workspace'
 import { Workspace, WorkspaceManager } from '@/types/workspace'
+import { useToast } from '@/hooks/use-toast'
 
 interface WorkspaceSelectorProps {
     currentWorkspace: Workspace | null
@@ -49,13 +50,18 @@ export default function WorkspaceSelector({
     const [newWorkspaceDialogOpen, setNewWorkspaceDialogOpen] = useState(false)
     const [workspaceName, setWorkspaceName] = useState('')
     const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
+    const { toast } = useToast()
 
     // 获取当前选中的工作区
     const selectedWorkspace = currentWorkspace
 
     // 处理工作区切换
     const handleWorkspaceChange = (workspaceId: string) => {
-        const workspace = workspaceManager.workspaces.find(ws => ws.id === workspaceId)
+        // 重新获取最新的工作区数据
+        const latestManager = WorkspaceService.getWorkspaces()
+        setWorkspaceManager(latestManager)
+
+        const workspace = latestManager.workspaces.find(ws => ws.id === workspaceId)
         if (workspace) {
             onWorkspaceChange(workspace)
         }
@@ -83,6 +89,7 @@ export default function WorkspaceSelector({
     // 处理保存当前工作区
     const handleSaveCurrentWorkspace = () => {
         onSaveWorkspace()
+        toast.success('工作区保存成功')
     }
 
     // 处理删除工作区
@@ -122,20 +129,7 @@ export default function WorkspaceSelector({
                     <SelectContent>
                         {workspaceManager.workspaces.map((workspace) => (
                             <SelectItem key={workspace.id} value={workspace.id}>
-                                <div className="flex items-center justify-between w-full">
-                                    <span>{formatWorkspaceName(workspace)}</span>
-                                    <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        className="h-4 w-4 p-0 ml-2 hover:bg-red-100"
-                                        onClick={(e) => {
-                                            e.stopPropagation()
-                                            setConfirmDeleteId(workspace.id)
-                                        }}
-                                    >
-                                        <TrashIcon className="h-3 w-3 text-red-500" />
-                                    </Button>
-                                </div>
+                                {formatWorkspaceName(workspace)}
                             </SelectItem>
                         ))}
                     </SelectContent>
@@ -203,6 +197,18 @@ export default function WorkspaceSelector({
                 title="保存当前工作区"
             >
                 <SaveIcon className="h-4 w-4" />
+            </Button>
+
+            {/* 独立的删除按钮 */}
+            <Button
+                variant="outline"
+                size="sm"
+                onClick={() => selectedWorkspace && setConfirmDeleteId(selectedWorkspace.id)}
+                disabled={!selectedWorkspace}
+                title="删除当前工作区"
+                className="text-red-500 hover:text-red-700 hover:bg-red-50"
+            >
+                <TrashIcon className="h-4 w-4" />
             </Button>
 
             {/* 删除确认对话框 */}

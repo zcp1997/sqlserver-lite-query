@@ -44,10 +44,18 @@ export function useSqlTabs(activeSession: Session | null): UseSqlTabsReturn {
 
     // 切换到新tab并加载其内容
     setActiveSqlTabId(tabId);
-    const targetTab = sqlTabs.find(tab => tab.id === tabId);
-    if (targetTab) {
-      setSqlQuery(targetTab.content);
-    }
+
+    // 使用回调的方式获取最新的tabs状态
+    setSqlTabs(currentTabs => {
+      const targetTab = currentTabs.find(tab => tab.id === tabId);
+      if (targetTab) {
+        // 延迟设置内容，确保activeTabId已更新
+        setTimeout(() => {
+          setSqlQuery(targetTab.content);
+        }, 0);
+      }
+      return currentTabs;
+    });
 
     // 更新工作区的活动标签页
     if (currentWorkspace) {
@@ -61,7 +69,7 @@ export function useSqlTabs(activeSession: Session | null): UseSqlTabsReturn {
         )
       })
     }
-  }, [activeSqlTabId, sqlQuery, sqlTabs, currentWorkspace]);
+  }, [activeSqlTabId, sqlQuery, currentWorkspace]);
 
   // 内容更新函数
   const updateTabContent = useCallback((content: string) => {
@@ -136,7 +144,7 @@ export function useSqlTabs(activeSession: Session | null): UseSqlTabsReturn {
     // 如果关闭的是当前活动标签页，需要切换到其他标签页
     if (tabId === activeSqlTabId) {
       const tabIndex = sqlTabs.findIndex(t => t.id === tabId)
-      
+
       if (tabIndex > 0) {
         newActiveTabId = sqlTabs[tabIndex - 1].id
         newSqlQuery = sqlTabs[tabIndex - 1].content
@@ -180,35 +188,35 @@ export function useSqlTabs(activeSession: Session | null): UseSqlTabsReturn {
   // 加载工作区 - 修复版本
   const loadWorkspace = useCallback((workspace: Workspace) => {
     console.log('Loading workspace:', workspace.id, 'with tabs:', workspace.tabs?.length || 0)
-    
+
     setCurrentWorkspace(workspace)
-    
+
     if (workspace.tabs && workspace.tabs.length > 0) {
       // 确保所有标签页都有正确的sessionId
       const validTabs = workspace.tabs.map(tab => ({
         ...tab,
         sessionId: activeSession?.id || tab.sessionId
       }))
-      
+
       // 确保activeTabId存在于tabs中
       const activeTabExists = validTabs.some(tab => tab.id === workspace.activeTabId)
       const finalActiveTabId = activeTabExists ? workspace.activeTabId : validTabs[0].id
-      
+
       // 获取活动标签页的内容
       const activeTab = validTabs.find(tab => tab.id === finalActiveTabId)
-      
-      // 批量更新状态
-      setSqlTabs(validTabs)
-      setActiveSqlTabId(finalActiveTabId)
-      
+
       // 设置正确的计数器，应该基于现有标签页的最大编号
       const maxTabNumber = validTabs.reduce((max, tab) => {
         const match = tab.title.match(/SQLQuery(\d+)/)
         const num = match ? parseInt(match[1]) : 0
         return Math.max(max, num)
       }, 0)
+
+      setSqlTabs(validTabs)
+      setActiveSqlTabId(finalActiveTabId)
       setTabCounter(Math.max(maxTabNumber + 1, workspace.tabCounter || 1))
-      
+      setSqlQuery(activeTab?.content || '')
+
       // 设置当前查询内容 - 确保在设置了tabs之后再设置内容
       if (activeTab) {
         console.log('Setting active tab content:', activeTab.content)
@@ -216,12 +224,12 @@ export function useSqlTabs(activeSession: Session | null): UseSqlTabsReturn {
       } else {
         setSqlQuery('')
       }
-      
+
       console.log('Loaded tabs:', validTabs.length, 'active:', finalActiveTabId, 'content:', activeTab?.content)
     } else {
       // 如果工作区没有标签页，创建默认标签页
       console.log('Creating default tab for workspace')
-      
+
       const defaultTabId = uuidv4()
       const defaultTab: EditorTab = {
         id: defaultTabId,
@@ -230,12 +238,12 @@ export function useSqlTabs(activeSession: Session | null): UseSqlTabsReturn {
         sessionId: activeSession?.id || '',
         isDirty: false
       }
-      
+
       setSqlTabs([defaultTab])
       setActiveSqlTabId(defaultTabId)
       setSqlQuery('')
       setTabCounter(1)
-      
+
       // 更新工作区以包含默认标签页
       const manager = WorkspaceService.getWorkspaces()
       WorkspaceService.updateWorkspace(manager, workspace.id, {
@@ -255,6 +263,16 @@ export function useSqlTabs(activeSession: Session | null): UseSqlTabsReturn {
     WorkspaceService.saveWorkspaces(updatedManager)
   }, [activeSession?.id])
 
+  // 添加useEffect确保状态同步
+  useEffect(() => {
+    if (sqlTabs.length > 0 && activeSqlTabId) {
+      const activeTab = sqlTabs.find(tab => tab.id === activeSqlTabId)
+      if (activeTab && activeTab.content !== sqlQuery) {
+        setSqlQuery(activeTab.content)
+      }
+    }
+  }, [sqlTabs, activeSqlTabId])
+
   // 保存当前工作区 - 新增方法
   const saveCurrentWorkspace = useCallback(() => {
     if (!currentWorkspace) return
@@ -272,7 +290,7 @@ export function useSqlTabs(activeSession: Session | null): UseSqlTabsReturn {
       activeTabId: activeSqlTabId,
       tabCounter: tabCounter
     })
-    
+
     console.log('Saved workspace with tabs:', currentTabs.length)
   }, [currentWorkspace, sqlTabs, activeSqlTabId, sqlQuery, tabCounter])
 
@@ -281,7 +299,7 @@ export function useSqlTabs(activeSession: Session | null): UseSqlTabsReturn {
     if (!activeSession?.id) return
 
     const manager = WorkspaceService.getWorkspaces()
-    
+
     // 查找当前会话对应的工作区
     let workspace = WorkspaceService.findWorkspace(
       manager,
@@ -292,10 +310,10 @@ export function useSqlTabs(activeSession: Session | null): UseSqlTabsReturn {
     // 如果没有找到工作区，检查是否有最近使用的工作区
     if (!workspace) {
       const lastUsedWorkspace = WorkspaceService.getLastUsedWorkspace(manager)
-      
-      if (lastUsedWorkspace && 
-          lastUsedWorkspace.server === activeSession.server && 
-          lastUsedWorkspace.database === activeSession.database) {
+
+      if (lastUsedWorkspace &&
+        lastUsedWorkspace.server === activeSession.server &&
+        lastUsedWorkspace.database === activeSession.database) {
         workspace = lastUsedWorkspace
       }
     }
@@ -308,7 +326,7 @@ export function useSqlTabs(activeSession: Session | null): UseSqlTabsReturn {
         activeSession.connectionId || activeSession.id,
         activeSession.connectionName
       )
-      
+
       const updatedManager = WorkspaceService.addOrUpdateWorkspace(manager, workspace)
       WorkspaceService.saveWorkspaces(updatedManager)
     } else {
