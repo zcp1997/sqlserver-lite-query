@@ -121,12 +121,14 @@ export default function SqlWorkbenchPage() {
     <div className="flex flex-col h-full max-h-full overflow-hidden">
       <div className="p-2 border-b flex flex-shrink-0 items-center space-x-4">
         {/* 工作区选择器 */}
+        工作区
         <WorkspaceSelector
           currentWorkspace={currentWorkspace}
           onWorkspaceChange={handleWorkspaceChange}
           onSaveWorkspace={saveCurrentWorkspace}
         />
 
+        数据库会话
         <SessionSelector />
 
         {/* 清空按钮 */}
@@ -138,12 +140,12 @@ export default function SqlWorkbenchPage() {
               size="sm"
             >
               <TrashIcon className="h-4 w-4 mr-1" />
-              清空所有配置和数据
+              清空所有数据
             </Button>
           </DialogTrigger>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>确认清空所有配置和数据</DialogTitle>
+              <DialogTitle>确认清空所有数据</DialogTitle>
               <DialogDescription>
                 此操作将清空所有配置和数据，且无法撤销。你确定要继续吗？
               </DialogDescription>

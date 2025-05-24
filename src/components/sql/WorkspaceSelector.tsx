@@ -117,13 +117,13 @@ export default function WorkspaceSelector({
         <div className="flex items-center space-x-2">
             {/* 工作区选择器 */}
             <div className="flex items-center space-x-1">
-                <FolderIcon className="h-4 w-4 text-gray-500" />
+                {/* <FolderIcon className="h-4 w-4 text-gray-500" /> */}
                 <Select
                     value={selectedWorkspace?.id || ""}
                     onValueChange={handleWorkspaceChange}
                     disabled={!activeSession}
                 >
-                    <SelectTrigger className="w-[200px]">
+                    <SelectTrigger className="w-[280px]">
                         <SelectValue placeholder="选择工作区" />
                     </SelectTrigger>
                     <SelectContent>
