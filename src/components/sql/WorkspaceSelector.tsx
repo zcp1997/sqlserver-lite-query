@@ -1,7 +1,6 @@
-// components/workspace/WorkspaceSelector.tsx
 "use client"
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
 import {
     Select,
@@ -22,10 +21,9 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
-    PlusIcon,
-    SaveIcon,
-    FolderIcon,
-    TrashIcon
+    Plus,
+    Save,
+    Trash2
 } from 'lucide-react'
 import { useSession } from '@/components/session/SessionContext'
 import { WorkspaceService } from '@/lib/workspace'
@@ -43,7 +41,7 @@ export default function WorkspaceSelector({
     onWorkspaceChange,
     onSaveWorkspace
 }: WorkspaceSelectorProps) {
-    const { activeSession } = useSession()
+    const { activeSession, isInitializing } = useSession()
     const [workspaceManager, setWorkspaceManager] = useState<WorkspaceManager>(() =>
         WorkspaceService.getWorkspaces()
     )
@@ -51,6 +49,27 @@ export default function WorkspaceSelector({
     const [workspaceName, setWorkspaceName] = useState('')
     const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
     const { toast } = useToast()
+
+    // ✅ 添加 useEffect 来监听 activeSession 变化，重新加载工作区数据
+    useEffect(() => {
+        if (!isInitializing && activeSession) {
+            // 当会话初始化完成且有活动会话时，重新加载工作区数据
+            const latestManager = WorkspaceService.getWorkspaces()
+            setWorkspaceManager(latestManager)
+            
+            // 如果当前没有选中的工作区，尝试找到对应当前会话的工作区
+            if (!currentWorkspace) {
+                const matchingWorkspace = WorkspaceService.findWorkspace(
+                    latestManager,
+                    activeSession.server,
+                    activeSession.database
+                )
+                if (matchingWorkspace) {
+                    onWorkspaceChange(matchingWorkspace)
+                }
+            }
+        }
+    }, [activeSession, isInitializing, currentWorkspace, onWorkspaceChange])
 
     // 获取当前选中的工作区
     const selectedWorkspace = currentWorkspace
@@ -89,6 +108,10 @@ export default function WorkspaceSelector({
     // 处理保存当前工作区
     const handleSaveCurrentWorkspace = () => {
         onSaveWorkspace()
+        // ✅ 保存后重新加载工作区数据，确保状态同步
+        const latestManager = WorkspaceService.getWorkspaces()
+        setWorkspaceManager(latestManager)
+        
         toast.success('工作区保存成功')
     }
 
@@ -116,100 +139,100 @@ export default function WorkspaceSelector({
     return (
         <div className="flex items-center space-x-2">
             {/* 工作区选择器 */}
+            <Select
+                value={selectedWorkspace?.id || ""}
+                onValueChange={handleWorkspaceChange}
+                disabled={!activeSession || isInitializing}
+            >
+                <SelectTrigger className="w-[280px]">
+                    <SelectValue placeholder={isInitializing ? "加载中..." : "选择工作区"} />
+                </SelectTrigger>
+                <SelectContent>
+                    {workspaceManager.workspaces.map((workspace) => (
+                        <SelectItem key={workspace.id} value={workspace.id}>
+                            {formatWorkspaceName(workspace)}
+                        </SelectItem>
+                    ))}
+                </SelectContent>
+            </Select>
+
+            {/* 操作按钮组 */}
             <div className="flex items-center space-x-1">
-                {/* <FolderIcon className="h-4 w-4 text-gray-500" /> */}
-                <Select
-                    value={selectedWorkspace?.id || ""}
-                    onValueChange={handleWorkspaceChange}
-                    disabled={!activeSession}
-                >
-                    <SelectTrigger className="w-[280px]">
-                        <SelectValue placeholder="选择工作区" />
-                    </SelectTrigger>
-                    <SelectContent>
-                        {workspaceManager.workspaces.map((workspace) => (
-                            <SelectItem key={workspace.id} value={workspace.id}>
-                                {formatWorkspaceName(workspace)}
-                            </SelectItem>
-                        ))}
-                    </SelectContent>
-                </Select>
-            </div>
-
-            {/* 新建工作区按钮 */}
-            <Dialog open={newWorkspaceDialogOpen} onOpenChange={setNewWorkspaceDialogOpen}>
-                <DialogTrigger asChild>
-                    <Button
-                        variant="outline"
-                        size="sm"
-                        disabled={!activeSession}
-                        title="新建工作区"
-                    >
-                        <PlusIcon className="h-4 w-4" />
-                    </Button>
-                </DialogTrigger>
-                <DialogContent>
-                    <DialogHeader>
-                        <DialogTitle>新建工作区</DialogTitle>
-                        <DialogDescription>
-                            为当前连接 ({activeSession?.server} - {activeSession?.database}) 创建新的工作区
-                        </DialogDescription>
-                    </DialogHeader>
-                    <div className="grid gap-4 py-4">
-                        <div className="grid grid-cols-4 items-center gap-4">
-                            <Label htmlFor="workspace-name" className="text-right">
-                                工作区名称
-                            </Label>
-                            <Input
-                                id="workspace-name"
-                                value={workspaceName}
-                                onChange={(e) => setWorkspaceName(e.target.value)}
-                                className="col-span-3"
-                                placeholder="输入工作区名称"
-                                onKeyDown={(e) => {
-                                    if (e.key === 'Enter' && workspaceName.trim()) {
-                                        handleCreateWorkspace()
-                                    }
-                                }}
-                            />
-                        </div>
-                    </div>
-                    <DialogFooter>
-                        <Button variant="outline" onClick={() => setNewWorkspaceDialogOpen(false)}>
-                            取消
-                        </Button>
+                {/* 新建工作区按钮 */}
+                <Dialog open={newWorkspaceDialogOpen} onOpenChange={setNewWorkspaceDialogOpen}>
+                    <DialogTrigger asChild>
                         <Button
-                            onClick={handleCreateWorkspace}
-                            disabled={!workspaceName.trim()}
+                            variant="outline"
+                            size="sm"
+                            disabled={!activeSession || isInitializing}
+                            title="新建工作区"
                         >
-                            创建
+                            <Plus className="h-4 w-4" />
                         </Button>
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog>
+                    </DialogTrigger>
+                    <DialogContent>
+                        <DialogHeader>
+                            <DialogTitle>新建工作区</DialogTitle>
+                            <DialogDescription>
+                                为当前连接 ({activeSession?.server} - {activeSession?.database}) 创建新的工作区
+                            </DialogDescription>
+                        </DialogHeader>
+                        <div className="grid gap-4 py-4">
+                            <div className="grid grid-cols-4 items-center gap-4">
+                                <Label htmlFor="workspace-name" className="text-right">
+                                    工作区名称
+                                </Label>
+                                <Input
+                                    id="workspace-name"
+                                    value={workspaceName}
+                                    onChange={(e) => setWorkspaceName(e.target.value)}
+                                    className="col-span-3"
+                                    placeholder="输入工作区名称"
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter' && workspaceName.trim()) {
+                                            handleCreateWorkspace()
+                                        }
+                                    }}
+                                />
+                            </div>
+                        </div>
+                        <DialogFooter>
+                            <Button variant="outline" onClick={() => setNewWorkspaceDialogOpen(false)}>
+                                取消
+                            </Button>
+                            <Button
+                                onClick={handleCreateWorkspace}
+                                disabled={!workspaceName.trim()}
+                            >
+                                创建
+                            </Button>
+                        </DialogFooter>
+                    </DialogContent>
+                </Dialog>
 
-            {/* 保存当前工作区按钮 */}
-            <Button
-                variant="outline"
-                size="sm"
-                onClick={handleSaveCurrentWorkspace}
-                disabled={!selectedWorkspace}
-                title="保存当前工作区"
-            >
-                <SaveIcon className="h-4 w-4" />
-            </Button>
+                {/* 保存当前工作区按钮 */}
+                <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleSaveCurrentWorkspace}
+                    disabled={!selectedWorkspace || isInitializing}
+                    title="保存当前工作区"
+                >
+                    <Save className="h-4 w-4" />
+                </Button>
 
-            {/* 独立的删除按钮 */}
-            <Button
-                variant="outline"
-                size="sm"
-                onClick={() => selectedWorkspace && setConfirmDeleteId(selectedWorkspace.id)}
-                disabled={!selectedWorkspace}
-                title="删除当前工作区"
-                className="text-red-500 hover:text-red-700 hover:bg-red-50"
-            >
-                <TrashIcon className="h-4 w-4" />
-            </Button>
+                {/* 删除按钮 */}
+                <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => selectedWorkspace && setConfirmDeleteId(selectedWorkspace.id)}
+                    disabled={!selectedWorkspace || isInitializing}
+                    title="删除当前工作区"
+                    className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                >
+                    <Trash2 className="h-4 w-4" />
+                </Button>
+            </div>
 
             {/* 删除确认对话框 */}
             <Dialog open={!!confirmDeleteId} onOpenChange={() => setConfirmDeleteId(null)}>

@@ -5,7 +5,7 @@ import SessionSelector from '@/components/session/SessionSelector'
 import WorkspaceSelector from '@/components/sql/WorkspaceSelector'
 import EditorTabs from '@/components/sql/workbench/EditorTabs'
 import { Button } from '@/components/ui/button'
-import { TrashIcon } from 'lucide-react'
+import { Trash2 } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
@@ -119,48 +119,66 @@ export default function SqlWorkbenchPage() {
 
   return (
     <div className="flex flex-col h-full max-h-full overflow-hidden">
-      <div className="p-2 border-b flex flex-shrink-0 items-center space-x-4">
-        {/* 工作区选择器 */}
-        工作区
-        <WorkspaceSelector
-          currentWorkspace={currentWorkspace}
-          onWorkspaceChange={handleWorkspaceChange}
-          onSaveWorkspace={saveCurrentWorkspace}
-        />
+      <div className="p-2 border-b flex flex-shrink-0 items-center justify-between">
+        {/* 左侧：工作区和会话选择器 */}
+        <div className="flex items-center space-x-6">
+          {/* 工作区选择器区域 */}
+          <div className="flex items-center space-x-3">
+            <span className="text-sm font-medium text-muted-foreground min-w-[48px]">
+              工作区
+            </span>
+            <WorkspaceSelector
+                currentWorkspace={currentWorkspace}
+                onWorkspaceChange={handleWorkspaceChange}
+                onSaveWorkspace={saveCurrentWorkspace}
+              />
+          </div>
 
-        数据库会话
-        <SessionSelector />
+          {/* 分隔线 */}
+          <div className="h-6 w-px bg-border" />
 
-        {/* 清空按钮 */}
-        <Dialog>
-          <DialogTrigger asChild>
-            <Button
-              className="bg-red-500 hover:bg-red-600 text-white"
-              variant="outline"
-              size="sm"
-            >
-              <TrashIcon className="h-4 w-4 mr-1" />
-              清空所有数据
-            </Button>
-          </DialogTrigger>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>确认清空所有数据</DialogTitle>
-              <DialogDescription>
-                此操作将清空所有配置和数据，且无法撤销。你确定要继续吗？
-              </DialogDescription>
-            </DialogHeader>
-            <DialogFooter>
-              <Button variant="outline">取消</Button>
-              <Button
-                className="bg-red-500 hover:bg-red-600 text-white"
-                onClick={handleClearAll}
-              >
-                确认清空
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+          {/* 数据库会话选择器 */}
+          <div className="flex items-center space-x-3">
+            <span className="text-sm font-medium text-muted-foreground min-w-[72px]">
+              数据库会话
+            </span>
+            <SessionSelector />
+            {/* 清空数据按钮 - 放在工作区选择器的最右边 */}
+
+          {/* 分隔线 */}
+          <div className="h-6 w-px bg-border" />
+
+            <Dialog>
+              <DialogTrigger asChild>
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  className="text-sm"
+                >
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  清空数据
+                </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>确认清空所有数据</DialogTitle>
+                  <DialogDescription>
+                    此操作将清空所有配置和数据，且无法撤销。你确定要继续吗？
+                  </DialogDescription>
+                </DialogHeader>
+                <DialogFooter>
+                  <Button variant="outline">取消</Button>
+                  <Button
+                    variant="destructive"
+                    onClick={handleClearAll}
+                  >
+                    确认清空
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+          </div>
+        </div>
       </div>
 
       {/* 编辑器标签页 */}
@@ -211,6 +229,6 @@ export default function SqlWorkbenchPage() {
         onOpenChange={setScriptDialogOpen}
         updateTabContent={updateTabContent}
       />
-    </div>
+    </div >
   )
 }
