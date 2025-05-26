@@ -413,7 +413,7 @@ pub async fn execute_sql_smart(
 ) -> Result<QueryResult, DatabaseError> {
     let parser = SqlParser::new();
     let start_time = std::time::Instant::now();
-   
+    
     // 解析SQL语句
     let parsed_statements = match parser.parse_sql(sql) {
         Ok(statements) => statements,
@@ -427,13 +427,12 @@ pub async fn execute_sql_smart(
     println!("parsed_statements: {:?}", parsed_statements);
 
     let mut all_result_sets = Vec::new();
-    let mut has_error = false;
-    let mut error_messages = Vec::new(); // 改为收集所有错误消息
-    
+    let mut error_message: Option<String> = None;
+
     // 逐个执行解析出的SQL语句
     for (index, parsed_stmt) in parsed_statements.iter().enumerate() {
         println!("执行第{}个语句: {} (类型: {:?})", index + 1, parsed_stmt.sql, parsed_stmt.statement_type);
-       
+        
         let result = match parsed_stmt.statement_type {
             SqlStatementType::Query => {
                 execute_query(client, &parsed_stmt.sql).await
@@ -464,20 +463,19 @@ pub async fn execute_sql_smart(
                 all_result_sets.extend(query_result.result_sets);
             }
             Err(e) => {
-                has_error = true;
                 let current_error = format!("语句 {} 执行失败: {}", index + 1, e);
+                error_message = Some(current_error.clone());
                 println!("{}", current_error);
-                error_messages.push(current_error.clone()); // 收集错误消息
-               
+                
                 // 添加错误结果集
                 all_result_sets.push(ResultSet {
                     columns: Vec::new(),
                     column_types: Vec::new(),
                     rows: Vec::new(),
                     affected_rows: None,
-                    error: Some(current_error), // 使用当前错误消息
+                    error: Some(current_error),
                 });
-               
+                
                 // 可以选择继续执行后续语句或者停止
                 // 这里选择继续执行
                 continue;
@@ -492,27 +490,16 @@ pub async fn execute_sql_smart(
             column_types: Vec::new(),
             rows: Vec::new(),
             affected_rows: None,
-            error: if has_error && !error_messages.is_empty() {
-                Some(error_messages.join("; ")) // 合并所有错误消息
-            } else {
-                None
-            },
+            error: error_message.clone(),
         });
     }
 
     let execution_time = start_time.elapsed();
     let execution_time_secs = execution_time.as_secs_f64();
 
-    // 创建最终的错误消息（如果有错误的话）
-    let final_error_message = if has_error && !error_messages.is_empty() {
-        Some(error_messages.join("; "))
-    } else {
-        None
-    };
-
     Ok(QueryResult {
         result_sets: all_result_sets,
-        error: final_error_message,
+        error: error_message,
         execution_time: Some(execution_time_secs),
     })
 }

@@ -59,7 +59,7 @@ export async function executeQuery(session_id: string, sql: string): Promise<Que
       session_id,
       sql
     }
-    const result = await invoke<QueryResult>('execute_query', { request })
+    const result = await invoke<QueryResult>('execute_single_query', { request })
 
     console.log('executeQuery 结果:', result)
 
