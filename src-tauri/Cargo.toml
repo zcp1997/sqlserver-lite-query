@@ -42,6 +42,8 @@ futures = "0.3.31"
 lazy_static = "1.4.0"
 indexmap = {version = "2.9.0", features = ["serde"] }
 backtrace = "0.3"
+# SQL解析器
+sqlparser = "0.49"
 
 [features]
 # This feature is used for production builds or when a dev server is not specified, DO NOT REMOVE!!

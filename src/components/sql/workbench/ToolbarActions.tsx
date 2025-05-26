@@ -82,7 +82,7 @@ export default function ToolbarActions({
           variant="outline"
           size="sm"
           onClick={onOpenScriptDialog}
-          disabled={!activeSession?.id}
+          disabled={!activeSession?.id || isExecuting }
         >
           <BookOpenIcon className="h-4 w-4 mr-1" />
           打开SQL脚本

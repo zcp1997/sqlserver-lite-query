@@ -9,6 +9,9 @@ use tokio::net::TcpStream;
 use tokio::time::timeout;
 use tokio_util::compat::{Compat, TokioAsyncWriteCompatExt};
 
+pub mod sql_parser;
+pub use sql_parser::{SqlParser, SqlStatementType};
+
 // 连接配置
 #[derive(Debug, Serialize, Deserialize, Clone, Eq, Hash)]
 pub struct ConnectionConfig {
@@ -270,6 +273,7 @@ pub async fn execute_query(
             // 获取所有结果集
             match result.into_results().await {
                 Ok(all_result_sets) => {
+
                     // 处理每个结果集
                     for result_rows in all_result_sets {
                         let mut columns = Vec::new();
@@ -399,6 +403,117 @@ pub async fn execute_non_query(
         result_sets: vec![result_set],
         error: None,
         execution_time: None,
+    })
+}
+
+/// 智能执行SQL - 自动解析SQL类型并选择合适的执行方法
+pub async fn execute_sql_smart(
+    client: &mut Client<Compat<TcpStream>>,
+    sql: &str,
+) -> Result<QueryResult, DatabaseError> {
+    let parser = SqlParser::new();
+    let start_time = std::time::Instant::now();
+   
+    // 解析SQL语句
+    let parsed_statements = match parser.parse_sql(sql) {
+        Ok(statements) => statements,
+        Err(e) => {
+            println!("SQL解析失败，回退到简单执行: {}", e);
+            // 如果解析失败，默认使用查询方式执行
+            return execute_query(client, sql).await;
+        }
+    };
+
+    println!("parsed_statements: {:?}", parsed_statements);
+
+    let mut all_result_sets = Vec::new();
+    let mut has_error = false;
+    let mut error_messages = Vec::new(); // 改为收集所有错误消息
+    
+    // 逐个执行解析出的SQL语句
+    for (index, parsed_stmt) in parsed_statements.iter().enumerate() {
+        println!("执行第{}个语句: {} (类型: {:?})", index + 1, parsed_stmt.sql, parsed_stmt.statement_type);
+       
+        let result = match parsed_stmt.statement_type {
+            SqlStatementType::Query => {
+                execute_query(client, &parsed_stmt.sql).await
+            }
+            SqlStatementType::NonQuery => {
+                execute_non_query(client, &parsed_stmt.sql).await
+            }
+            SqlStatementType::Unknown => {
+                // 对于未知类型，尝试查询方式，如果失败再尝试非查询方式
+                match execute_query(client, &parsed_stmt.sql).await {
+                    Ok(result) => Ok(result),
+                    Err(_) => {
+                        println!("查询方式失败，尝试非查询方式");
+                        execute_non_query(client, &parsed_stmt.sql).await
+                    }
+                }
+            }
+        };
+
+        match result {
+            Ok(mut query_result) => {
+                // 为每个结果集添加语句信息
+                for result_set in &mut query_result.result_sets {
+                    if result_set.error.is_none() {
+                        // 可以在这里添加语句索引或其他元信息
+                    }
+                }
+                all_result_sets.extend(query_result.result_sets);
+            }
+            Err(e) => {
+                has_error = true;
+                let current_error = format!("语句 {} 执行失败: {}", index + 1, e);
+                println!("{}", current_error);
+                error_messages.push(current_error.clone()); // 收集错误消息
+               
+                // 添加错误结果集
+                all_result_sets.push(ResultSet {
+                    columns: Vec::new(),
+                    column_types: Vec::new(),
+                    rows: Vec::new(),
+                    affected_rows: None,
+                    error: Some(current_error), // 使用当前错误消息
+                });
+               
+                // 可以选择继续执行后续语句或者停止
+                // 这里选择继续执行
+                continue;
+            }
+        }
+    }
+
+    // 如果没有任何结果集，添加一个空的
+    if all_result_sets.is_empty() {
+        all_result_sets.push(ResultSet {
+            columns: Vec::new(),
+            column_types: Vec::new(),
+            rows: Vec::new(),
+            affected_rows: None,
+            error: if has_error && !error_messages.is_empty() {
+                Some(error_messages.join("; ")) // 合并所有错误消息
+            } else {
+                None
+            },
+        });
+    }
+
+    let execution_time = start_time.elapsed();
+    let execution_time_secs = execution_time.as_secs_f64();
+
+    // 创建最终的错误消息（如果有错误的话）
+    let final_error_message = if has_error && !error_messages.is_empty() {
+        Some(error_messages.join("; "))
+    } else {
+        None
+    };
+
+    Ok(QueryResult {
+        result_sets: all_result_sets,
+        error: final_error_message,
+        execution_time: Some(execution_time_secs),
     })
 }
 

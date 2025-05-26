@@ -1,6 +1,6 @@
 use crate::database::{
     create_connection, execute_non_query as db_execute_non_query,
-    execute_query as db_execute_query, search_stored_functions, search_stored_procedures,
+    execute_query as db_execute_query, execute_sql_smart, search_stored_functions, search_stored_procedures,
     search_stored_views, search_table_columns, search_tables, ColumnInfo, ConnectionConfig,
     QueryResult, StoredFunctionInfo, StoredProcedureInfo, StoredViewInfo, TableInfo,
 };
@@ -115,9 +115,9 @@ pub async fn execute_query(request: QueryRequest) -> Result<QueryResult, String>
     let mut connections = ACTIVE_CONNECTIONS.lock().await;
 
     if let Some(client) = connections.get_mut(&request.session_id) {
-        match db_execute_query(client, &request.sql).await {
+        match execute_sql_smart(client, &request.sql).await {
             Ok(result) => {
-                println!("查询执行成功，结果集数量: {}, 查询出的result原始数据json: {}", result.result_sets.len(), serde_json::to_string(&result).unwrap());
+                println!("智能SQL执行成功，结果集数量: {}", result.result_sets.len());
 
                 // 检查结果集是否为空
                 if result.result_sets.is_empty() {
@@ -138,7 +138,7 @@ pub async fn execute_query(request: QueryRequest) -> Result<QueryResult, String>
                 }
             }
             Err(err) => {
-                let error_msg = format!("查询执行错误: {}", err);
+                let error_msg = format!("智能SQL执行错误: {}", err);
                 println!("{}", error_msg);
                 Err(error_msg)
             }
@@ -368,6 +368,36 @@ pub async fn get_columns_for_table(request: ColumnQueryRequest) -> Result<Vec<Co
             }
             Err(err) => {
                 let error_msg = format!("执行错误: {}", err);
+                println!("{}", error_msg);
+                Err(error_msg)
+            }
+        }
+    } else {
+        let error_msg = format!(
+            "会话不存在或已过期，请重新连接，会话ID: {}",
+            request.session_id
+        );
+        println!("{}", error_msg);
+        Err(error_msg)
+    }
+}
+
+// 执行单一查询（传统方式，作为备选）
+#[tauri::command]
+pub async fn execute_single_query(request: QueryRequest) -> Result<QueryResult, String> {
+    println!("执行单一查询请求，会话ID: {}", request.session_id);
+    println!("SQL: {}", request.sql);
+
+    let mut connections = ACTIVE_CONNECTIONS.lock().await;
+
+    if let Some(client) = connections.get_mut(&request.session_id) {
+        match db_execute_query(client, &request.sql).await {
+            Ok(result) => {
+                println!("单一查询执行成功，结果集数量: {}", result.result_sets.len());
+                Ok(result)
+            }
+            Err(err) => {
+                let error_msg = format!("单一查询执行错误: {}", err);
                 println!("{}", error_msg);
                 Err(error_msg)
             }
