@@ -74,24 +74,51 @@ export const SessionProvider = ({ children }: { children: ReactNode }) => {
       setSessions(newSessionsList);
       setActiveSessionState(newSession);
       
-      // 为新会话创建或加载工作区
+      // 处理工作区绑定
       const manager = WorkspaceService.getWorkspaces()
-      let workspace = WorkspaceService.findWorkspace(
-        manager,
-        connection.server,
-        connection.database
-      )
       
-      if (!workspace) {
-        // 创建新工作区时使用连接名称作为默认工作区名称
-        workspace = WorkspaceService.createWorkspace(
+      // 检查是否有当前活动的工作区
+      const currentWorkspace = manager.workspaces.find(ws => ws.id === manager.activeWorkspaceId)
+      
+      if (currentWorkspace) {
+        // 如果有当前工作区，将新会话绑定到当前工作区
+        console.log('Binding new session to current workspace:', currentWorkspace.workspaceName)
+        WorkspaceService.updateWorkspace(manager, currentWorkspace.id, {
+          server: connection.server,
+          database: connection.database,
+          connectionId: connection.id,
+          connectionName: connection.name,
+          lastUsed: Date.now()
+        })
+        toast.success(`会话已绑定到工作区: ${currentWorkspace.workspaceName}`)
+      } else {
+        // 如果没有当前工作区，检查是否已存在匹配的工作区
+        let workspace = WorkspaceService.findWorkspace(
+          manager,
           connection.server,
-          connection.database,
-          connection.id,
-          connection.name,
-          `${connection.name} - ${connection.database}` // 使用连接信息作为默认工作区名称
+          connection.database
         )
-        WorkspaceService.addOrUpdateWorkspace(manager, workspace)
+        
+        if (!workspace) {
+          // 只有在没有匹配工作区时才创建新工作区
+          workspace = WorkspaceService.createWorkspace(
+            connection.server,
+            connection.database,
+            connection.id,
+            connection.name,
+            `${connection.name} - ${connection.database}` // 使用连接信息作为默认工作区名称
+          )
+          WorkspaceService.addOrUpdateWorkspace(manager, workspace)
+          console.log('Created new workspace for session:', workspace.workspaceName)
+        } else {
+          // 更新现有工作区的连接信息
+          WorkspaceService.updateWorkspace(manager, workspace.id, {
+            connectionId: connection.id,
+            connectionName: connection.name,
+            lastUsed: Date.now()
+          })
+          console.log('Updated existing workspace for session:', workspace.workspaceName)
+        }
       }
       
       return newSession;
