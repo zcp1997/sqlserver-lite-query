@@ -10,7 +10,7 @@ use tokio::time::timeout;
 use tokio_util::compat::{Compat, TokioAsyncWriteCompatExt};
 
 // 连接配置
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, Eq, Hash)]
 pub struct ConnectionConfig {
     pub id: Option<String>,
     pub name: String,
@@ -22,6 +22,18 @@ pub struct ConnectionConfig {
     pub trust_server_certificate: Option<bool>,
     pub connection_timeout: Option<u64>,
     pub encrypt: Option<bool>,
+}
+
+impl PartialEq for ConnectionConfig {
+    fn eq(&self, other: &Self) -> bool {
+        self.server == other.server &&
+        self.port == other.port &&
+        self.database == other.database &&
+        self.username == other.username &&
+        self.password == other.password &&
+        self.trust_server_certificate == other.trust_server_certificate &&
+        self.encrypt == other.encrypt
+    }
 }
 
 // 查询结果
@@ -38,6 +50,7 @@ pub struct ResultSet {
 pub struct QueryResult {
     pub result_sets: Vec<ResultSet>,
     pub error: Option<String>,
+    pub execution_time: Option<f64>,
 }
 
 // 错误类型
@@ -249,6 +262,7 @@ pub async fn execute_query(
     sql: &str,
 ) -> Result<QueryResult, DatabaseError> {
     let mut result_sets = Vec::new();
+    let start_time = std::time::Instant::now();
 
     // 不分割SQL，直接执行整个查询
     match client.simple_query(sql).await {
@@ -347,9 +361,13 @@ pub async fn execute_query(
         });
     }
 
+    let execution_time = start_time.elapsed();
+    let execution_time_secs = execution_time.as_secs_f64();
+
     Ok(QueryResult {
         result_sets,
         error: None,
+        execution_time: Some(execution_time_secs),
     })
 }
 
@@ -380,6 +398,7 @@ pub async fn execute_non_query(
     Ok(QueryResult {
         result_sets: vec![result_set],
         error: None,
+        execution_time: None,
     })
 }
 

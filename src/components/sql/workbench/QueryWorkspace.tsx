@@ -50,9 +50,23 @@ export default function QueryWorkspace({
       {/* 结果面板 */}
       <ResizablePanel defaultSize={60} minSize={20}>
         {error ? (
-          <div className="h-full flex items-center justify-center text-destructive px-4">
-            <AlertCircleIcon className="h-5 w-5 mr-2 mt-0.5 flex-shrink-0" />
-            <pre className="text-sm whitespace-pre-wrap">{error}</pre>
+          <div className="h-full flex flex-col p-4">
+            <div className="bg-destructive/5 border border-destructive/20 rounded-lg p-4 max-w-2xl">
+              <div className="flex items-start gap-3">
+                <div className="flex-shrink-0 w-6 h-6 bg-destructive/10 rounded-full flex items-center justify-center">
+                  <AlertCircleIcon className="h-4 w-4 text-destructive" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <h3 className="text-sm font-medium text-destructive mb-2">查询执行失败</h3>
+                  <div className="bg-background rounded-md border p-3">
+                    <pre className="text-xs text-muted-foreground whitespace-pre-wrap font-mono leading-relaxed">
+                      {error}
+                    </pre>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-2">请检查SQL语法或联系管理员获取帮助</p>
+                </div>
+              </div>
+            </div>
           </div>
         ) : queryResult ? (
           <ResultPanel result={queryResult} isLoading={isExecuting} />

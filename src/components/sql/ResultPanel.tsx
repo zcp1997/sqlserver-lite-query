@@ -19,7 +19,8 @@ import {
   DatabaseIcon,
   CopyIcon,
   XIcon,
-  SearchIcon
+  SearchIcon,
+  ClockIcon
 } from 'lucide-react'
 import { useTheme } from "next-themes"
 
@@ -50,10 +51,19 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, isLoading = false }) 
 
   // 根据 resolvedTheme 动态生成 theme
   const myTheme = useMemo(() => {
-    return resolvedTheme === "dark"
+    const baseTheme = resolvedTheme === "dark"
       ? themeQuartz.withPart(colorSchemeDark)
-      : themeQuartz.withPart(colorSchemeLightWarm)
-  }, [resolvedTheme])
+      : themeQuartz.withPart(colorSchemeLightWarm);
+    
+    // 使用 withParams 添加字体配置
+    return baseTheme.withParams({
+      fontFamily: 'sans-serif, Maple Mono, monospace',
+      // 可选：为表头设置不同字体
+      headerFontFamily: 'sans-serif, Maple Mono, monospace',
+      // 可选：为单元格设置字体
+      cellFontFamily: 'sans-serif, Maple Mono, monospace',
+    });
+  }, [resolvedTheme]);
 
   // 处理结果集数据，生成标签页数据
   const tabsData = useMemo<GridTabData[]>(() => {
@@ -338,6 +348,14 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, isLoading = false }) 
                         )}
                       </span>
                     </div>
+                    {result.execution_time !== undefined && (
+                      <div className="flex items-center gap-2">
+                        <ClockIcon className="h-4 w-4 text-muted-foreground" />
+                        <span className="text-sm text-muted-foreground">
+                          执行时间: <strong>{result.execution_time.toFixed(2)}</strong> 秒
+                        </span>
+                      </div>
+                    )}
                     {tab.resultSet.columns && tab.resultSet.columns.length > 0 && (
                       <div className="flex items-center gap-2">
                         <DatabaseIcon className="h-4 w-4 text-muted-foreground" />

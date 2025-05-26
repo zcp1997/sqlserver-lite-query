@@ -67,7 +67,7 @@ export async function executeQuery(session_id: string, sql: string): Promise<Que
     return result
 
   } catch (error) {
-    console.error('查询执行失败:', error)
+    toast.error("查询执行失败", { description: "数据库语句执行失败", duration: 1500 })
     return {
       result_sets: [{
         columns: [],
@@ -90,9 +90,10 @@ export async function executeNonQuery(session_id: string, sql: string): Promise<
 
     console.log('executeNonQuery 结果:', result)
 
+    toast.success("执行成功", { description: "数据库语句执行成功", duration: 1500 })
     return result
   } catch (error) {
-    console.error('执行失败:', error)
+    toast.error("执行失败", { description: "数据库语句执行失败", duration: 1500 })
     return {
       result_sets: [{
         columns: [],

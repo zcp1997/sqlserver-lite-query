@@ -21,6 +21,11 @@ export const toast = {
   basic(message: string, options?: any) {
     return sonnerToast(message, {
       className: GeistSans.className,
+      style: {
+        backgroundColor: "#ffffff",
+        color: "#1f2937",
+        border: "1px solid #e5e7eb",
+      },
       ...options,
     })
   },
@@ -33,9 +38,10 @@ export const toast = {
   success(message: string, options?: any) {
     return sonnerToast.success(message, {
       className: GeistSans.className,
-      style: { 
-        backgroundColor: "#ffffff",
-        color: "oklch(75% 0.18 135)",
+      style: {
+        backgroundColor: "#f0fdf4",
+        color: "#15803d",
+        border: "1px solid #bbf7d0",
       },
       ...options,
     })
@@ -49,9 +55,10 @@ export const toast = {
   error(message: string, options?: any) {
     return sonnerToast.error(message, {
       className: GeistSans.className,
-      style: { 
-        backgroundColor: "#ffffff",
-        color: "oklch(70.4% 0.191 22.216)",
+      style: {
+        backgroundColor: "#fef2f2",
+        color: "#dc2626",
+        border: "1px solid #fecaca",
       },
       ...options,
     })
@@ -65,9 +72,10 @@ export const toast = {
   warning(message: string, options?: any) {
     return sonnerToast.warning(message, {
       className: GeistSans.className,
-      style: { 
-        backgroundColor: "#ffffff",
-        color: "oklch(70.7% 0.165 254.624)",
+      style: {
+        backgroundColor: "#fffbeb",
+        color: "#d97706",
+        border: "1px solid #fed7aa",
       },
       ...options,
     })
@@ -81,9 +89,10 @@ export const toast = {
   info(message: string, options?: any) {
     return sonnerToast.info(message, {
       className: GeistSans.className,
-      style: { 
-        backgroundColor: "#ffffff",
-        color: "#000000",
+      style: {
+        backgroundColor: "#eff6ff",
+        color: "#2563eb",
+        border: "1px solid #bfdbfe",
       },
       ...options,
     })
@@ -116,6 +125,11 @@ export const toast = {
   loading(message: string, options?: any) {
     return sonnerToast.loading(message, {
       className: GeistSans.className,
+      style: {
+        backgroundColor: "#f8fafc",
+        color: "#64748b",
+        border: "1px solid #e2e8f0",
+      },
       ...options,
     })
   },

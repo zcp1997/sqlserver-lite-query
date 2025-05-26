@@ -15,6 +15,10 @@ type ClientType = tiberius::Client<tokio_util::compat::Compat<tokio::net::TcpStr
 static ACTIVE_CONNECTIONS: Lazy<Mutex<HashMap<String, ClientType>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 
+// 保存连接配置的映射，键为会话ID，值为连接配置
+static CONNECTION_CONFIGS: Lazy<Mutex<HashMap<String, ConnectionConfig>>> =
+    Lazy::new(|| Mutex::new(HashMap::new()));
+
 // 测试连接响应
 #[derive(Debug, Serialize)]
 pub struct ConnectionResponse {
@@ -58,15 +62,31 @@ pub async fn test_connection(config: ConnectionConfig) -> ConnectionResponse {
         config.server, config.database
     );
 
+    // 检查是否已存在相同配置的连接
+    let configs = CONNECTION_CONFIGS.lock().await;
+    for (session_id, existing_config) in configs.iter() {
+        if existing_config == &config {
+            println!("找到已存在的相同配置连接，会话ID: {}", session_id);
+            return ConnectionResponse {
+                success: true,
+                message: "使用已存在的连接".to_string(),
+                session_id: Some(session_id.clone()),
+            };
+        }
+    }
+    drop(configs); // 释放锁
+
     match create_connection(&config).await {
         Ok(client) => {
             // 生成会话ID
             let session_id = Uuid::new_v4().to_string();
             println!("连接成功，生成会话ID: {}", session_id);
 
-            // 存储连接
+            // 存储连接和配置
             let mut connections = ACTIVE_CONNECTIONS.lock().await;
+            let mut configs = CONNECTION_CONFIGS.lock().await;
             connections.insert(session_id.clone(), client);
+            configs.insert(session_id.clone(), config);
             println!("会话已存储，当前活动会话数: {}", connections.len());
 
             ConnectionResponse {
@@ -97,7 +117,7 @@ pub async fn execute_query(request: QueryRequest) -> Result<QueryResult, String>
     if let Some(client) = connections.get_mut(&request.session_id) {
         match db_execute_query(client, &request.sql).await {
             Ok(result) => {
-                println!("查询执行成功，结果集数量: {}", result.result_sets.len());
+                println!("查询执行成功，结果集数量: {}, 查询出的result原始数据json: {}", result.result_sets.len(), serde_json::to_string(&result).unwrap());
 
                 // 检查结果集是否为空
                 if result.result_sets.is_empty() {
