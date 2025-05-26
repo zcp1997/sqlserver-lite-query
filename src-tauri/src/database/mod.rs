@@ -360,7 +360,7 @@ pub async fn execute_query(
             columns: Vec::new(),
             column_types: Vec::new(),
             rows: Vec::new(),
-            affected_rows: None,
+            affected_rows: Some(0),
             error: None,
         });
     }
