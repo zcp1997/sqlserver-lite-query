@@ -28,6 +28,7 @@ interface ToolbarActionsProps {
   onExecuteQuery?: () => void;
   onStopExecution?: () => void;
   sqlQuery?: string;
+  selectedText?: string; // 新增
 }
 
 export default function ToolbarActions({
@@ -37,8 +38,12 @@ export default function ToolbarActions({
   isExecuting = false,
   onExecuteQuery,
   onStopExecution,
-  sqlQuery = ''
+  sqlQuery = '',
+  selectedText = '', // 新增
 }: ToolbarActionsProps) {
+
+  // 判断是否有可执行的内容
+  const hasExecutableContent = selectedText.trim() || sqlQuery.trim()
 
   return (
     <div className="flex justify-between items-center p-2 border-b flex-shrink-0">
@@ -77,7 +82,7 @@ export default function ToolbarActions({
           variant="outline"
           size="sm"
           onClick={onOpenScriptDialog}
-          disabled={!activeSession?.id}
+          disabled={!activeSession?.id || isExecuting }
         >
           <BookOpenIcon className="h-4 w-4 mr-1" />
           打开SQL脚本
@@ -96,8 +101,8 @@ export default function ToolbarActions({
 
         {/* 执行按钮 */}
         <Button
-          onClick={onExecuteQuery}
-          disabled={isExecuting || !activeSession || !sqlQuery.trim()}
+          onClick={() => onExecuteQuery?.()}
+          disabled={isExecuting || !activeSession || !hasExecutableContent}
           size="sm"
         >
           <PlayIcon className="h-4 w-4 mr-1" />

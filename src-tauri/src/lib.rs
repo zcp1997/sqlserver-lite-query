@@ -11,6 +11,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::connection::test_connection,
             commands::connection::execute_query,
+            commands::connection::execute_single_query,
             commands::connection::execute_non_query,
             //commands::connection::execute_table_metadata_query,
             commands::connection::execute_procedure_query,

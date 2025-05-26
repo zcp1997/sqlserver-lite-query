@@ -1,4 +1,3 @@
-// components/sql/EditorTabs.tsx
 import { X, Plus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
@@ -16,6 +15,7 @@ interface EditorTabsProps {
   onTabChange: (tabId: string) => void
   onTabClose: (tabId: string) => void
   onTabAdd: () => void
+  isExecuting?: boolean // 新增：是否正在执行查询
 }
 
 export default function EditorTabs({
@@ -23,17 +23,40 @@ export default function EditorTabs({
   activeTabId,
   onTabChange,
   onTabClose,
-  onTabAdd
+  onTabAdd,
+  isExecuting = false
 }: EditorTabsProps) {
+  const handleTabClick = (tabId: string) => {
+    if (isExecuting) return // 执行中时禁止切换
+    onTabChange(tabId)
+  }
+
+  const handleTabClose = (e: React.MouseEvent, tabId: string) => {
+    e.stopPropagation()
+    if (isExecuting) return // 执行中时禁止关闭
+    onTabClose(tabId)
+  }
+
+  const handleAddTab = () => {
+    if (isExecuting) return // 执行中时禁止添加
+    onTabAdd()
+  }
+
   return (
     <div className="flex items-center border-b overflow-x-auto">
       {tabs.map((tab) => (
         <div
           key={tab.id}
-          className={`flex items-center px-3 py-2 border-r cursor-pointer ${
-            activeTabId === tab.id ? 'bg-background' : 'bg-muted/30 hover:bg-muted/50'
-          }`}
-          onClick={() => onTabChange(tab.id)}
+          className={`flex items-center px-3 py-2 border-r transition-colors
+            ${activeTabId === tab.id
+              ? 'bg-primary border-b-2 border-b-primary text-primary-foreground font-medium'
+              : 'bg-muted/30 hover:bg-muted/50'
+            }
+            ${isExecuting 
+              ? 'cursor-not-allowed opacity-60' 
+              : 'cursor-pointer'
+            }`}
+          onClick={() => handleTabClick(tab.id)}
         >
           <span className="mr-2 max-w-[150px] truncate">
             {tab.title} {tab.isDirty && '*'}
@@ -42,10 +65,8 @@ export default function EditorTabs({
             variant="ghost"
             size="sm"
             className="h-5 w-5 p-0 rounded-full"
-            onClick={(e) => {
-              e.stopPropagation()
-              onTabClose(tab.id)
-            }}
+            disabled={isExecuting}
+            onClick={(e) => handleTabClose(e, tab.id)}
           >
             <X className="h-3 w-3" />
           </Button>
@@ -55,7 +76,8 @@ export default function EditorTabs({
         variant="ghost"
         size="sm"
         className="h-8 w-8 p-0"
-        onClick={onTabAdd}
+        disabled={isExecuting}
+        onClick={handleAddTab}
       >
         <Plus className="h-4 w-4" />
       </Button>

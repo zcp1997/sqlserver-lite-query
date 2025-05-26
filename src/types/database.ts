@@ -67,6 +67,7 @@ export interface ResultSet {
 export interface QueryResult {
   result_sets: ResultSet[]
   error?: string
+  execution_time?: number  // 执行时间，单位为秒
 }
 
 // 查询会话

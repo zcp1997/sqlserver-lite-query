@@ -2,7 +2,7 @@
 
 import React, { useMemo, useState, useCallback } from 'react'
 import { AgGridReact } from 'ag-grid-react'
-import { AllCommunityModule, ModuleRegistry, ColDef, GridReadyEvent, GridApi } from 'ag-grid-community'
+import { AllCommunityModule, ModuleRegistry, ColDef, GridReadyEvent, GridApi, themeQuartz, colorSchemeDark, colorSchemeLightWarm } from 'ag-grid-community'
 import { AG_GRID_LOCALE_CN } from '@ag-grid-community/locale'
 import { QueryResult, ResultSet } from '@/types/database'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -19,8 +19,10 @@ import {
   DatabaseIcon,
   CopyIcon,
   XIcon,
-  SearchIcon
+  SearchIcon,
+  ClockIcon
 } from 'lucide-react'
+import { useTheme } from "next-themes"
 
 ModuleRegistry.registerModules([AllCommunityModule]);
 
@@ -37,13 +39,28 @@ interface GridTabData {
   affectedRows?: number
 }
 
-const ResultPanel: React.FC<ResultPanelProps> = ({ result, isLoading = false }) => {
+const ResultPanel: React.FC<ResultPanelProps> = React.memo(({ result, isLoading = false }) => {
   const { toast } = useToast();
   const [activeTab, setActiveTab] = useState<string>('')
   const [gridApis, setGridApis] = useState<Record<string, GridApi>>({})
   const [quickFilterText, setQuickFilterText] = useState('');
   const [columnSearchText, setColumnSearchText] = useState('');
   const [highlightedColumn, setHighlightedColumn] = useState<string | null>(null);
+
+  const { resolvedTheme } = useTheme()
+
+  // 根据 resolvedTheme 动态生成 theme
+  const myTheme = useMemo(() => {
+    const baseTheme = resolvedTheme === "dark"
+      ? themeQuartz.withPart(colorSchemeDark)
+      : themeQuartz.withPart(colorSchemeLightWarm);
+
+    return baseTheme.withParams({
+      fontFamily: 'sans-serif, Maple Mono, monospace',
+      headerFontFamily: 'sans-serif, Maple Mono, monospace',
+      cellFontFamily: 'sans-serif, Maple Mono, monospace',
+    });
+  }, [resolvedTheme]);
 
   // 处理结果集数据，生成标签页数据
   const tabsData = useMemo<GridTabData[]>(() => {
@@ -89,15 +106,10 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, isLoading = false }) 
     );
 
     if (foundColumn) {
-      // 设置高亮列
       setHighlightedColumn(foundColumn.getColId());
-
-      // 确保列可见
       gridApi.ensureColumnVisible(foundColumn);
 
-      // 计算列的位置并滚动
       setTimeout(() => {
-        // 使用setTimeout确保DOM已更新
         const headerCell = document.querySelector(`.ag-header-cell[col-id="${foundColumn.getColId()}"]`);
         if (headerCell) {
           headerCell.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
@@ -106,7 +118,6 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, isLoading = false }) 
 
       toast.info('列已找到', { description: `已找到并高亮显示列: ${foundColumn.getColDef().headerName}` })
 
-      // 5秒后取消高亮
       setTimeout(() => {
         setHighlightedColumn(null);
       }, 5000);
@@ -118,7 +129,7 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, isLoading = false }) 
     return false;
   }, [gridApis, columnSearchText, toast]);
 
-  // 生成表格列定义
+  // 生成表格列定义 - 使用 useCallback 缓存
   const generateColumnDefs = useCallback((resultSet: ResultSet): ColDef[] => {
     if (!resultSet.columns || resultSet.columns.length === 0) {
       return []
@@ -133,7 +144,6 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, isLoading = false }) 
       minWidth: 120,
       flex: 1,
       cellStyle: (params) => {
-        // 如果当前列是高亮列，应用高亮样式
         if (highlightedColumn === column) {
           return { backgroundColor: 'rgba(25, 118, 210, 0.2)' };
         }
@@ -141,7 +151,6 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, isLoading = false }) 
       },
       cellRenderer: (params: any) => {
         const value = params.value
-        // 处理NULL值
         if (value === null || value === undefined) {
           return (
             <span style={{ color: '#999', fontStyle: 'italic' }}>
@@ -150,7 +159,6 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, isLoading = false }) 
           )
         }
 
-        // 处理日期类型
         if (resultSet.column_types && resultSet.column_types[index]) {
           const columnType = resultSet.column_types[index]
           if ((columnType === 'Datetime' || columnType === 'Datetimen') && value) {
@@ -172,12 +180,10 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, isLoading = false }) 
           }
         }
 
-        // 处理布尔值
         if (typeof value === 'boolean') {
           return value ? '是' : '否'
         }
 
-        // 处理长文本
         if (typeof value === 'string' && value.length > 100) {
           return (
             <div className="flex items-center gap-2">
@@ -213,7 +219,7 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, isLoading = false }) 
     }))
   }, [highlightedColumn, toast])
 
-  // 处理网格准备就绪
+  // 处理网格准备就绪 - 移除列状态持久化逻辑
   const onGridReady = useCallback((params: GridReadyEvent, tabId: string) => {
     setGridApis(prev => ({
       ...prev,
@@ -238,10 +244,9 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, isLoading = false }) 
     if (gridApi) {
       gridApi.sizeColumnsToFit()
     }
-  }, [gridApis, toast])
+  }, [gridApis])
 
   const gridOptions = {
-    // other grid options
     localeText: AG_GRID_LOCALE_CN,
   };
 
@@ -264,47 +269,36 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, isLoading = false }) 
   }
 
   return (
-    <div className="h-full flex flex-col overflow-hidden">
+    <div className="h-full flex flex-col overflow-hidden w-full max-w-full">
       <Tabs
         value={activeTab}
         onValueChange={setActiveTab}
-        className="h-full flex flex-col overflow-hidden"
+        className="h-full flex flex-col overflow-hidden w-full max-w-full"
       >
-        <div className="flex-shrink-0 border-b px-3">
-          <TabsList className="grid w-full" style={{ gridTemplateColumns: `repeat(${tabsData.length}, 1fr)` }}>
-            {tabsData.map((tab) => (
-              <TabsTrigger key={tab.id} value={tab.id} className="flex items-center gap-2">
-                <TableIcon className="h-4 w-4" />
-                <span>{tab.title}</span>
-                {tab.affectedRows !== undefined ? (
-                  <Badge variant="secondary" className="ml-1">
-                    {tab.affectedRows} 行
-                  </Badge>
-                ) : tab.affectedRows !== undefined && (!tab.resultSet.rows || tab.resultSet.rows.length === 0) ? (
-                  // 只有在没有数据行时才显示操作完成卡片
-                  <div className="h-full flex items-center justify-center">
-                    <Card className="w-96">
-                      <CardHeader>
-                        <CardTitle className="flex items-center gap-2">
-                          <CheckCircleIcon className="h-5 w-5 text-green-500" />
-                          操作完成
-                        </CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <p className="text-center text-lg">
-                          成功影响了 <strong className="text-primary">{tab.affectedRows}</strong> 行数据
-                        </p>
-                      </CardContent>
-                    </Card>
-                  </div>
-                ) : (
-                  <Badge variant="outline" className="ml-1">
-                    {tab.rowCount} 行
-                  </Badge>
-                )}
-              </TabsTrigger>
-            ))}
-          </TabsList>
+        <div className="flex-shrink-0 border-b">
+          <div className="overflow-x-auto overflow-y-hidden px-3 max-w-full">
+            <TabsList className="flex space-x-1 w-max min-w-0">
+              {tabsData.map((tab) => (
+                <TabsTrigger
+                  key={tab.id}
+                  value={tab.id}
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg transition-all duration-200 ease-in-out data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:scale-105 hover:bg-muted whitespace-nowrap flex-shrink-0 max-w-[200px]"
+                >
+                  <TableIcon className="h-4 w-4 flex-shrink-0" />
+                  <span className="text-sm truncate">{tab.title}</span>
+                  {tab.affectedRows !== undefined ? (
+                    <Badge variant="secondary" className="ml-1 flex-shrink-0">
+                      {tab.affectedRows} 行受影响
+                    </Badge>
+                  ) : (
+                    <Badge variant="outline" className="ml-1 flex-shrink-0">
+                      {tab.rowCount} 行
+                    </Badge>
+                  )}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          </div>
         </div>
 
         {tabsData.map((tab) => (
@@ -328,6 +322,14 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, isLoading = false }) 
                         )}
                       </span>
                     </div>
+                    {result.execution_time !== undefined && (
+                      <div className="flex items-center gap-2">
+                        <ClockIcon className="h-4 w-4 text-muted-foreground" />
+                        <span className="text-sm text-muted-foreground">
+                          执行时间: <strong>{result.execution_time.toFixed(2)}</strong> 秒
+                        </span>
+                      </div>
+                    )}
                     {tab.resultSet.columns && tab.resultSet.columns.length > 0 && (
                       <div className="flex items-center gap-2">
                         <DatabaseIcon className="h-4 w-4 text-muted-foreground" />
@@ -415,9 +417,9 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, isLoading = false }) 
               {/* 表格内容 */}
               <div className="flex-1 overflow-hidden">
                 {tab.resultSet.rows && tab.resultSet.rows.length > 0 ? (
-                  // 显示查询结果表格
                   <div className="ag-theme-alpine h-full w-full">
                     <AgGridReact
+                      theme={myTheme}
                       gridOptions={gridOptions}
                       rowData={tab.resultSet.rows}
                       columnDefs={generateColumnDefs(tab.resultSet)}
@@ -443,10 +445,26 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, isLoading = false }) 
                       headerHeight={40}
                       quickFilterText={quickFilterText}
                       cacheQuickFilter={true}
+                      suppressColumnMoveAnimation={false}
                     />
                   </div>
+                ) : tab.affectedRows !== undefined && tab.affectedRows > 0 ? (
+                  <div className="h-full flex items-center justify-center">
+                    <Card className="w-96">
+                      <CardHeader>
+                        <CardTitle className="flex items-center gap-2">
+                          <CheckCircleIcon className="h-5 w-5 text-green-500" />
+                          操作完成
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <p className="text-center text-lg">
+                          成功影响了 <strong className="text-primary">{tab.affectedRows}</strong> 行数据
+                        </p>
+                      </CardContent>
+                    </Card>
+                  </div>
                 ) : (
-                  // 空结果集
                   <div className="h-full flex items-center justify-center text-muted-foreground">
                     <div className="text-center">
                       <DatabaseIcon className="h-12 w-12 mx-auto mb-4 opacity-50" />
@@ -461,6 +479,14 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, isLoading = false }) 
       </Tabs>
     </div>
   )
-}
+}, (prevProps, nextProps) => {
+  // 自定义比较函数，只有当 result 或 isLoading 真正改变时才重新渲染
+  return (
+    prevProps.result === nextProps.result &&
+    prevProps.isLoading === nextProps.isLoading
+  );
+})
+
+ResultPanel.displayName = 'ResultPanel'
 
 export default ResultPanel

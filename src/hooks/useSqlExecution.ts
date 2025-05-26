@@ -26,11 +26,13 @@ export function useSqlExecution() {
     const startTime = Date.now()
 
     try {
-      const isQuery = isQueryStatement(queryText)
+      // const isQuery = isQueryStatement(queryText)
 
-      const result = isQuery
-        ? await executeQuery(activeSession.id, queryText)
-        : await executeNonQuery(activeSession.id, queryText)
+      // const result = isQuery
+      //   ? await executeQuery(activeSession.id, queryText)
+      //   : await executeNonQuery(activeSession.id, queryText)
+
+      const result = await executeQuery(activeSession.id, queryText)
 
       const duration = Date.now() - startTime
 
