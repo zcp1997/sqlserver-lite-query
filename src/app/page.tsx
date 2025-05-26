@@ -71,6 +71,7 @@ export default function SqlWorkbenchPage() {
 
   // 处理工作区切换
   const handleWorkspaceChange = (workspace: Workspace) => {
+    console.log('Main page: handleWorkspaceChange called with workspace:', workspace.id, workspace.workspaceName)
     loadWorkspace(workspace)
   }
 

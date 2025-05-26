@@ -23,7 +23,7 @@ const SessionContext = createContext<SessionContextType | undefined>(undefined)
 
 export const SessionProvider = ({ children }: { children: ReactNode }) => {
   const [sessions, setSessions] = useState<Session[]>([])
-  const [activeSession, setActiveSession] = useState<Session | null>(null)
+  const [activeSession, setActiveSessionState] = useState<Session | null>(null)
   const { connections, isLoading: connectionsLoading } = useConnections()
   const [isInitializing, setIsInitializing] = useState(false)
 
@@ -40,7 +40,7 @@ export const SessionProvider = ({ children }: { children: ReactNode }) => {
 
     if (existingSession) {
       console.log('Using existing session:', existingSession);
-      setActiveSession(existingSession);
+      setActiveSessionState(existingSession);
       toast.success(`成功连接到 ${connection.name} - ${connection.database}`);
       return existingSession;
     }
@@ -72,7 +72,7 @@ export const SessionProvider = ({ children }: { children: ReactNode }) => {
       const newSessionsList = [...updatedSessions, newSession];
 
       setSessions(newSessionsList);
-      setActiveSession(newSession);
+      setActiveSessionState(newSession);
       
       // 为新会话创建或加载工作区
       const manager = WorkspaceService.getWorkspaces()
@@ -83,11 +83,13 @@ export const SessionProvider = ({ children }: { children: ReactNode }) => {
       )
       
       if (!workspace) {
+        // 创建新工作区时使用连接名称作为默认工作区名称
         workspace = WorkspaceService.createWorkspace(
           connection.server,
           connection.database,
           connection.id,
-          connection.name
+          connection.name,
+          `${connection.name} - ${connection.database}` // 使用连接信息作为默认工作区名称
         )
         WorkspaceService.addOrUpdateWorkspace(manager, workspace)
       }
@@ -102,12 +104,36 @@ export const SessionProvider = ({ children }: { children: ReactNode }) => {
 
   const closeSession = (sessionId: string) => {
     setSessions(prev => prev.filter(s => s.id !== sessionId))
-    setActiveSession(prev => (prev?.id === sessionId ? null : prev))
+    setActiveSessionState(prev => (prev?.id === sessionId ? null : prev))
   }
 
   const closeSessionByConnectionId = (connectionId: string) => {
     setSessions(prev => prev.filter(s => s.connectionId !== connectionId))
-    setActiveSession(prev => (prev?.id === connectionId ? null : prev))
+    setActiveSessionState(prev => (prev?.id === connectionId ? null : prev))
+  }
+
+  const setActiveSession = (session: Session) => {
+    // 更新会话状态
+    const updatedSessions = sessions.map(s => ({
+      ...s,
+      isActive: s.id === session.id
+    }))
+    setSessions(updatedSessions)
+    setActiveSessionState(session)
+
+    // 更新当前工作区的连接信息
+    const manager = WorkspaceService.getWorkspaces()
+    const currentWorkspace = manager.workspaces.find(ws => ws.id === manager.activeWorkspaceId)
+    
+    if (currentWorkspace) {
+      // 只更新连接相关的信息，保持工作区名称不变
+      WorkspaceService.updateWorkspace(manager, currentWorkspace.id, {
+        server: session.server,
+        database: session.database,
+        connectionId: session.connectionId,
+        lastUsed: Date.now()
+      })
+    }
   }
 
   // ✅ 初始化 sessions 的 useEffect，考虑工作区
@@ -160,7 +186,7 @@ export const SessionProvider = ({ children }: { children: ReactNode }) => {
         const withFlags = newSessions.map(s => ({ ...s, isActive: s.id === active?.id }))
 
         setSessions(withFlags)
-        setActiveSession(active)
+        setActiveSessionState(active)
         
         // 如果有活动会话，确保其对应的工作区存在
         if (active) {
@@ -175,7 +201,8 @@ export const SessionProvider = ({ children }: { children: ReactNode }) => {
               active.server,
               active.database,
               active.connectionId || active.id,
-              active.connectionName
+              active.connectionName,
+              `${active.connectionName} - ${active.database}`
             )
             WorkspaceService.addOrUpdateWorkspace(manager, workspace)
           } else {
@@ -201,7 +228,7 @@ export const SessionProvider = ({ children }: { children: ReactNode }) => {
         
         active = active || existingSessions[0]
         setSessions(existingSessions)
-        setActiveSession(active)
+        setActiveSessionState(active)
       }
 
       setIsInitializing(false);

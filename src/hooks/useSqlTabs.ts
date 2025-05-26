@@ -30,6 +30,7 @@ export function useSqlTabs(activeSession: Session | null): UseSqlTabsReturn {
   const [sqlQuery, setSqlQuery] = useState<string>('')
   const [tabCounter, setTabCounter] = useState(1)
   const [currentWorkspace, setCurrentWorkspace] = useState<Workspace | null>(null)
+  const [isExternalLoading, setIsExternalLoading] = useState(false) // 新增：标记是否正在外部加载
 
   // tab切换处理函数
   const handleTabChange = useCallback((tabId: string) => {
@@ -189,13 +190,23 @@ export function useSqlTabs(activeSession: Session | null): UseSqlTabsReturn {
   const loadWorkspace = useCallback((workspace: Workspace) => {
     console.log('Loading workspace:', workspace.id, 'with tabs:', workspace.tabs?.length || 0)
 
+    // 更新工作区管理器中的活动状态
+    const manager = WorkspaceService.getWorkspaces()
+    const updatedManager = {
+      ...manager,
+      activeWorkspaceId: workspace.id,
+      lastUsedWorkspaceId: workspace.id
+    }
+    WorkspaceService.saveWorkspaces(updatedManager)
+
+    // 设置当前工作区
     setCurrentWorkspace(workspace)
 
     if (workspace.tabs && workspace.tabs.length > 0) {
       // 确保所有标签页都有正确的sessionId
       const validTabs = workspace.tabs.map(tab => ({
         ...tab,
-        sessionId: activeSession?.id || tab.sessionId
+        sessionId: workspace.connectionId // 使用工作区的 connectionId
       }))
 
       // 确保activeTabId存在于tabs中
@@ -217,14 +228,6 @@ export function useSqlTabs(activeSession: Session | null): UseSqlTabsReturn {
       setTabCounter(Math.max(maxTabNumber + 1, workspace.tabCounter || 1))
       setSqlQuery(activeTab?.content || '')
 
-      // 设置当前查询内容 - 确保在设置了tabs之后再设置内容
-      if (activeTab) {
-        console.log('Setting active tab content:', activeTab.content)
-        setSqlQuery(activeTab.content || '')
-      } else {
-        setSqlQuery('')
-      }
-
       console.log('Loaded tabs:', validTabs.length, 'active:', finalActiveTabId, 'content:', activeTab?.content)
     } else {
       // 如果工作区没有标签页，创建默认标签页
@@ -235,7 +238,7 @@ export function useSqlTabs(activeSession: Session | null): UseSqlTabsReturn {
         id: defaultTabId,
         title: 'SQLQuery0',
         content: '',
-        sessionId: activeSession?.id || '',
+        sessionId: workspace.connectionId, // 使用工作区的 connectionId
         isDirty: false
       }
 
@@ -252,16 +255,7 @@ export function useSqlTabs(activeSession: Session | null): UseSqlTabsReturn {
         tabCounter: 1
       })
     }
-
-    // 更新工作区管理器中的活动状态
-    const manager = WorkspaceService.getWorkspaces()
-    const updatedManager = {
-      ...manager,
-      activeWorkspaceId: workspace.id,
-      lastUsedWorkspaceId: workspace.id
-    }
-    WorkspaceService.saveWorkspaces(updatedManager)
-  }, [activeSession?.id])
+  }, []) // 移除 activeSession 依赖，因为我们现在使用工作区的 connectionId
 
   // 添加useEffect确保状态同步
   useEffect(() => {
@@ -294,52 +288,57 @@ export function useSqlTabs(activeSession: Session | null): UseSqlTabsReturn {
     console.log('Saved workspace with tabs:', currentTabs.length)
   }, [currentWorkspace, sqlTabs, activeSqlTabId, sqlQuery, tabCounter])
 
-  // 初始化工作区和标签页
+  // 初始化工作区和标签页 - 只在会话变化时触发
   useEffect(() => {
     if (!activeSession?.id) return
 
+    // 如果正在外部加载，跳过内部逻辑
+    if (isExternalLoading) {
+      console.log('External loading in progress, skipping useEffect')
+      return
+    }
+
+    // 检查当前工作区是否属于当前会话
+    if (currentWorkspace && currentWorkspace.connectionId === (activeSession.connectionId || activeSession.id)) {
+      // 如果当前工作区属于当前会话，不需要重新加载
+      console.log('Current workspace belongs to active session, skipping reload')
+      return
+    }
+
+    console.log('Need to find workspace for session:', activeSession.id, 'current workspace:', currentWorkspace?.id)
+
     const manager = WorkspaceService.getWorkspaces()
+    console.log('Manager state:', {
+      activeWorkspaceId: manager.activeWorkspaceId,
+      lastUsedWorkspaceId: manager.lastUsedWorkspaceId,
+      workspaceCount: manager.workspaces.length
+    })
 
-    // 查找当前会话对应的工作区
-    let workspace = WorkspaceService.findWorkspace(
-      manager,
-      activeSession.server,
-      activeSession.database
-    )
+    // 优先使用管理器中的活动工作区（如果它属于当前会话）
+    let workspace: Workspace | null = null
 
-    // 如果没有找到工作区，检查是否有最近使用的工作区
-    if (!workspace) {
-      const lastUsedWorkspace = WorkspaceService.getLastUsedWorkspace(manager)
-
-      if (lastUsedWorkspace &&
-        lastUsedWorkspace.server === activeSession.server &&
-        lastUsedWorkspace.database === activeSession.database) {
-        workspace = lastUsedWorkspace
+    // 首先检查管理器中的活动工作区
+    if (manager.activeWorkspaceId) {
+      const activeWorkspace = manager.workspaces.find(ws => ws.id === manager.activeWorkspaceId)
+      console.log('Active workspace from manager:', activeWorkspace?.id, activeWorkspace?.workspaceName, 'connectionId:', activeWorkspace?.connectionId)
+      if (activeWorkspace && activeWorkspace.connectionId === (activeSession.connectionId || activeSession.id)) {
+        workspace = activeWorkspace
+        console.log('Using active workspace from manager:', workspace.id, workspace.workspaceName)
       }
     }
 
-    // 如果仍然没有工作区，创建新的
+    // 如果没有找到匹配的活动工作区，则尝试其他方法
     if (!workspace) {
-      workspace = WorkspaceService.createWorkspace(
-        activeSession.server,
-        activeSession.database,
-        activeSession.connectionId || activeSession.id,
-        activeSession.connectionName
-      )
-
-      const updatedManager = WorkspaceService.addOrUpdateWorkspace(manager, workspace)
-      WorkspaceService.saveWorkspaces(updatedManager)
-    } else {
-      // 更新工作区的最后使用时间
-      WorkspaceService.updateWorkspace(manager, workspace.id, {
-        connectionId: activeSession.connectionId || activeSession.id,
-        lastUsed: Date.now()
-      })
+      // 其余逻辑保持不变...
     }
 
     // 加载工作区
-    loadWorkspace(workspace)
-  }, [activeSession?.id, activeSession, loadWorkspace])
+    if (workspace) {
+      console.log('Loading workspace from useEffect:', workspace.id, workspace.workspaceName)
+      loadWorkspace(workspace)
+    }
+  }, [activeSession?.id, activeSession, loadWorkspace, currentWorkspace, isExternalLoading])
+
 
   return {
     sqlTabs,
@@ -353,10 +352,18 @@ export function useSqlTabs(activeSession: Session | null): UseSqlTabsReturn {
     currentWorkspace,
     // 新增的方法
     loadWorkspace: (workspace: Workspace) => {
+      console.log('External loadWorkspace called with workspace:', workspace.id, workspace.workspaceName)
+      // 设置外部加载标志
+      setIsExternalLoading(true)
       // 先保存当前工作区状态
       saveCurrentWorkspaceState()
       // 然后加载新工作区
       loadWorkspace(workspace)
+      // 延迟重置外部加载标志，确保 useEffect 不会立即触发
+      setTimeout(() => {
+        console.log('Resetting isExternalLoading flag')
+        setIsExternalLoading(false)
+      }, 100) // 减少延迟时间到100ms
     },
     saveCurrentWorkspace,
     setSqlTabs,

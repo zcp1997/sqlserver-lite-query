@@ -48,7 +48,8 @@ export class WorkspaceService {
     server: string,
     database: string,
     connectionId: string,
-    connectionName: string
+    connectionName: string,
+    workspaceName: string
   ): Workspace {
     const workspaceId = uuidv4()
     const defaultTabId = uuidv4()
@@ -63,6 +64,7 @@ export class WorkspaceService {
 
     return {
       id: workspaceId,
+      workspaceName,
       server,
       database,
       connectionId,
@@ -83,6 +85,26 @@ export class WorkspaceService {
     return manager.workspaces.find(
       ws => ws.server === server && ws.database === database
     ) || null
+  }
+
+  // 根据 connectionId 查找工作区
+  static findWorkspaceByConnectionId(
+    manager: WorkspaceManager,
+    connectionId: string
+  ): Workspace | null {
+    return manager.workspaces.find(
+      ws => ws.connectionId === connectionId
+    ) || null
+  }
+
+  // 根据 connectionId 查找所有工作区
+  static findWorkspacesByConnectionId(
+    manager: WorkspaceManager,
+    connectionId: string
+  ): Workspace[] {
+    return manager.workspaces.filter(
+      ws => ws.connectionId === connectionId
+    )
   }
 
   // 更新工作区

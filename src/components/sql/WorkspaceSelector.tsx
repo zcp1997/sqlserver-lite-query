@@ -41,7 +41,7 @@ export default function WorkspaceSelector({
     onWorkspaceChange,
     onSaveWorkspace
 }: WorkspaceSelectorProps) {
-    const { activeSession, isInitializing } = useSession()
+    const { activeSession, isInitializing, setActiveSession, sessions } = useSession()
     const [workspaceManager, setWorkspaceManager] = useState<WorkspaceManager>(() =>
         WorkspaceService.getWorkspaces()
     )
@@ -56,35 +56,100 @@ export default function WorkspaceSelector({
             // 当会话初始化完成且有活动会话时，重新加载工作区数据
             const latestManager = WorkspaceService.getWorkspaces()
             setWorkspaceManager(latestManager)
-            
+
             // 如果当前没有选中的工作区，尝试找到对应当前会话的工作区
             if (!currentWorkspace) {
-                const matchingWorkspace = WorkspaceService.findWorkspace(
-                    latestManager,
-                    activeSession.server,
-                    activeSession.database
-                )
-                if (matchingWorkspace) {
-                    onWorkspaceChange(matchingWorkspace)
+                // 首先尝试使用最后使用的工作区
+                const lastUsed = WorkspaceService.getLastUsedWorkspace(latestManager)
+                if (lastUsed) {
+                    onWorkspaceChange(lastUsed)
+                    // 查找对应的会话并切换
+                    const matchingSession = sessions.find(s => s.id === lastUsed.connectionId)
+                    if (matchingSession) {
+                        setActiveSession(matchingSession)
+                        toast.success(`已切换到最近使用的工作区: ${formatWorkspaceName(lastUsed)}`)
+                    }
+                } else {
+                    // 如果没有最后使用的工作区，尝试找到对应当前会话的工作区
+                    const matchingWorkspace = WorkspaceService.findWorkspace(
+                        latestManager,
+                        activeSession.server,
+                        activeSession.database
+                    )
+                    if (matchingWorkspace) {
+                        onWorkspaceChange(matchingWorkspace)
+                        toast.success(`已切换到工作区: ${formatWorkspaceName(matchingWorkspace)}`)
+                    }
                 }
             }
         }
-    }, [activeSession, isInitializing, currentWorkspace, onWorkspaceChange])
+    }, [activeSession, isInitializing, currentWorkspace, onWorkspaceChange, sessions, setActiveSession, toast])
 
     // 获取当前选中的工作区
     const selectedWorkspace = currentWorkspace
 
     // 处理工作区切换
+    // 在 WorkspaceSelector.tsx 中修改 handleWorkspaceChange 函数
+
     const handleWorkspaceChange = (workspaceId: string) => {
         // 重新获取最新的工作区数据
         const latestManager = WorkspaceService.getWorkspaces()
-        setWorkspaceManager(latestManager)
 
         const workspace = latestManager.workspaces.find(ws => ws.id === workspaceId)
         if (workspace) {
-            onWorkspaceChange(workspace)
+            console.log('WorkspaceSelector: Looking for session for workspace:', workspace.workspaceName, 'connectionId:', workspace.connectionId)
+            console.log('WorkspaceSelector: Available sessions:', sessions)
+
+            // 首先尝试根据 connectionId 查找匹配的会话
+            let matchingSession = sessions.find(s => s.id === workspace.connectionId)
+            console.log('WorkspaceSelector: Found session by connectionId:', matchingSession?.connectionName || 'None')
+
+            // 如果没有找到，尝试根据 server 和 database 查找
+            if (!matchingSession) {
+                matchingSession = sessions.find(s =>
+                    s.server === workspace.server &&
+                    s.database === workspace.database
+                )
+                console.log('WorkspaceSelector: Found session by server/database:', matchingSession?.connectionName || 'None')
+            }
+
+            // 如果还是没有找到，使用第一个可用会话
+            if (!matchingSession && sessions.length > 0) {
+                matchingSession = sessions[0]
+                console.log('WorkspaceSelector: Using first available session:', matchingSession.connectionName)
+            }
+
+            if (matchingSession) {
+                console.log('WorkspaceSelector: Switching to session:', matchingSession.connectionName, 'id:', matchingSession.id)
+
+                // 更新本地存储，标记这个工作区为即将被加载的工作区
+                const updatedManager = {
+                    ...latestManager,
+                    activeWorkspaceId: workspace.id,
+                    lastUsedWorkspaceId: workspace.id
+                }
+                WorkspaceService.saveWorkspaces(updatedManager)
+
+                // 先更新父组件状态，确保currentWorkspace更新
+                // 这里使用 loadWorkspace 而不是简单的 onWorkspaceChange
+                onWorkspaceChange(workspace)
+
+                // 然后更新本地状态
+                setWorkspaceManager(updatedManager)
+
+                // 最后切换会话，这样当会话变化触发 useEffect 时，
+                // 它会看到 activeWorkspaceId 已经是我们想要的工作区
+                setActiveSession(matchingSession)
+
+                console.log('WorkspaceSelector: Workspace changed to:', workspace.id, workspace.workspaceName)
+                toast.success(`已切换到工作区: ${formatWorkspaceName(workspace)}`)
+            } else {
+                console.log('WorkspaceSelector: No matching session found')
+                toast.error('没有可用的数据库会话')
+            }
         }
     }
+
 
     // 处理创建新工作区
     const handleCreateWorkspace = () => {
@@ -94,6 +159,7 @@ export default function WorkspaceSelector({
             activeSession.server,
             activeSession.database,
             activeSession.id,
+            activeSession.connectionName,
             workspaceName.trim()
         )
 
@@ -111,12 +177,18 @@ export default function WorkspaceSelector({
         // ✅ 保存后重新加载工作区数据，确保状态同步
         const latestManager = WorkspaceService.getWorkspaces()
         setWorkspaceManager(latestManager)
-        
+
         toast.success('工作区保存成功')
     }
 
     // 处理删除工作区
     const handleDeleteWorkspace = (workspaceId: string) => {
+        // 检查是否是最后一个工作区
+        if (workspaceManager.workspaces.length <= 1) {
+            toast.error('不能删除最后一个工作区')
+            return
+        }
+
         const updatedManager = WorkspaceService.removeWorkspace(workspaceManager, workspaceId)
         setWorkspaceManager(updatedManager)
 
@@ -125,6 +197,12 @@ export default function WorkspaceSelector({
             const lastUsed = WorkspaceService.getLastUsedWorkspace(updatedManager)
             if (lastUsed) {
                 onWorkspaceChange(lastUsed)
+                // 查找对应的会话并切换
+                const matchingSession = sessions.find(s => s.id === lastUsed.connectionId)
+                if (matchingSession) {
+                    setActiveSession(matchingSession)
+                    toast.success(`已切换到工作区: ${formatWorkspaceName(lastUsed)}`)
+                }
             }
         }
 
@@ -133,19 +211,22 @@ export default function WorkspaceSelector({
 
     // 格式化工作区显示名称
     const formatWorkspaceName = (workspace: Workspace) => {
-        return `${workspace.connectionName} - ${workspace.database}`
+        return workspace.workspaceName || `${workspace.connectionName} - ${workspace.database}`
     }
 
     return (
         <div className="flex items-center space-x-2">
             {/* 工作区选择器 */}
             <Select
+                key={selectedWorkspace?.id || 'no-workspace'}
                 value={selectedWorkspace?.id || ""}
                 onValueChange={handleWorkspaceChange}
                 disabled={!activeSession || isInitializing}
             >
                 <SelectTrigger className="w-[280px]">
-                    <SelectValue placeholder={isInitializing ? "加载中..." : "选择工作区"} />
+                    <SelectValue placeholder={isInitializing ? "加载中..." : "选择工作区"}>
+                        {selectedWorkspace ? formatWorkspaceName(selectedWorkspace) : (isInitializing ? "加载中..." : "选择工作区")}
+                    </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                     {workspaceManager.workspaces.map((workspace) => (

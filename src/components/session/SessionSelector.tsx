@@ -21,6 +21,7 @@ import {
 import { Database, Plus, X } from 'lucide-react'
 import ConnectionList from '@/components/connection/ConnectionList'
 import { ConnectionConfig } from '@/types/database'
+import { useToast } from '@/hooks/use-toast'
 
 export default function SessionSelector() {
   const {
@@ -31,6 +32,7 @@ export default function SessionSelector() {
     closeSession,
     isInitializing,
   } = useSession()
+  const { toast } = useToast()
 
   const [isNewSessionOpen, setIsNewSessionOpen] = useState(false)
   const [isConnecting, setIsConnecting] = useState(false)
@@ -57,7 +59,7 @@ export default function SessionSelector() {
     const selectedSession = sessions.find(s => s.id === session_id)
     if (selectedSession) {
       setActiveSession(selectedSession)
-      console.log('Session switched to:', selectedSession.connectionName, selectedSession.database)
+      toast.success(`已切换到会话: ${selectedSession.connectionName} - ${selectedSession.database}`)
     }
   }
 
@@ -139,7 +141,7 @@ export default function SessionSelector() {
           </Select>
 
           {/* 关闭会话按钮 */}
-          {activeSession?.id && (
+          {/* {activeSession?.id && (
             <Button
               variant="outline"
               size="sm"
@@ -149,7 +151,7 @@ export default function SessionSelector() {
             >
               <X className="h-4 w-4"/>
             </Button>
-          )}
+          )} */}
         </>
       ) : (
         <div className="text-sm text-muted-foreground">没有可用的数据库会话</div>
