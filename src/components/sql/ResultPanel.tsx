@@ -284,55 +284,38 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, isLoading = false }) 
   }
 
   return (
-    <div className="h-full flex flex-col overflow-hidden">
+    <div className="h-full flex flex-col overflow-hidden w-full max-w-full">
       <Tabs
         value={activeTab}
         onValueChange={setActiveTab}
-        className="h-full flex flex-col overflow-hidden"
+        className="h-full flex flex-col overflow-hidden w-full max-w-full"
       >
-        <div className="flex-shrink-0 border-b px-3">
-          <TabsList className="flex space-x-1">
-            {tabsData.map((tab) => (
-              <TabsTrigger
-                key={tab.id}
-                value={tab.id}
-                className="flex items-center gap-2 px-4 py-2 rounded-lg transition-all duration-200 ease-in-out data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:scale-105 hover:bg-muted"
-              >
-                <TableIcon className="h-4 w-4" />
-                <span>{tab.title}</span>
-                {tab.affectedRows !== undefined ? (
-                  tab.resultSet?.rows?.length === 0 ? (
-                    // Display card only when there are no data rows
-                    <div className="h-full flex items-center justify-center">
-                      <Card className="w-96">
-                        <CardHeader>
-                          <CardTitle className="flex items-center gap-2">
-                            <CheckCircleIcon className="h-5 w-5 text-green-500" />
-                            操作完成
-                          </CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                          <p className="text-center text-lg">
-                            成功影响了 <strong className="text-primary">{tab.affectedRows}</strong> 行数据
-                          </p>
-                        </CardContent>
-                      </Card>
-                    </div>
-                  ) : (
-                    <Badge variant="secondary" className="ml-1">
-                      {tab.affectedRows} 行
+        <div className="flex-shrink-0 border-b">
+          <div className="overflow-x-auto overflow-y-hidden px-3 max-w-full">
+            <TabsList className="flex space-x-1 w-max min-w-0">
+              {tabsData.map((tab) => (
+                <TabsTrigger
+                  key={tab.id}
+                  value={tab.id}
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg transition-all duration-200 ease-in-out data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:scale-105 hover:bg-muted whitespace-nowrap flex-shrink-0 max-w-[200px]" // 添加最大宽度限制
+                >
+                  <TableIcon className="h-4 w-4 flex-shrink-0" />
+                  <span className="text-sm truncate">{tab.title}</span> {/* 添加 truncate 类 */}
+                  {tab.affectedRows !== undefined ? (
+                    <Badge variant="secondary" className="ml-1 flex-shrink-0">
+                      {tab.affectedRows} 行受影响
                     </Badge>
-                  )
-                ) : (
-                  <Badge variant="outline" className="ml-1">
-                    {tab.rowCount} 行
-                  </Badge>
-                )}
-              </TabsTrigger>
-            ))}
-          </TabsList>
+                  ) : (
+                    <Badge variant="outline" className="ml-1 flex-shrink-0">
+                      {tab.rowCount} 行
+                    </Badge>
+                  )}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          </div>
         </div>
-        
+
         {tabsData.map((tab) => (
           <TabsContent
             key={tab.id}
@@ -479,6 +462,23 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, isLoading = false }) 
                       quickFilterText={quickFilterText}
                       cacheQuickFilter={true}
                     />
+                  </div>
+                ) : tab.affectedRows !== undefined && tab.affectedRows > 0 ? (
+                  // 显示成功操作卡片（没有返回数据但有受影响的行）
+                  <div className="h-full flex items-center justify-center">
+                    <Card className="w-96">
+                      <CardHeader>
+                        <CardTitle className="flex items-center gap-2">
+                          <CheckCircleIcon className="h-5 w-5 text-green-500" />
+                          操作完成
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <p className="text-center text-lg">
+                          成功影响了 <strong className="text-primary">{tab.affectedRows}</strong> 行数据
+                        </p>
+                      </CardContent>
+                    </Card>
                   </div>
                 ) : (
                   // 空结果集
