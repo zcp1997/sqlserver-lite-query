@@ -1,5 +1,6 @@
+import React, { forwardRef, useImperativeHandle, useRef } from 'react'
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from '@/components/ui/resizable'
-import SqlEditor from '@/components/sql/SqlEditor'
+import SqlEditor, { SqlEditorRef } from '@/components/sql/SqlEditor'
 import ResultPanel from '@/components/sql/ResultPanel'
 import { AlertCircleIcon } from 'lucide-react'
 import { QueryResult, QuerySession as Session } from '@/types/database'
@@ -11,10 +12,15 @@ interface QueryWorkspaceProps {
   isExecuting: boolean;
   queryResult: QueryResult | null;
   error: string | null;
-  onSelectionChange?: (selectedText: string) => void; // 新增
+  onSelectionChange?: (selectedText: string) => void;
 }
 
-export default function QueryWorkspace({
+// 暴露给父组件的方法
+export interface QueryWorkspaceRef {
+  formatSQL: () => void
+}
+
+const QueryWorkspace = forwardRef<QueryWorkspaceRef, QueryWorkspaceProps>(({
   sqlQuery,
   updateTabContent,
   activeSession,
@@ -22,7 +28,16 @@ export default function QueryWorkspace({
   queryResult,
   error,
   onSelectionChange
-}: QueryWorkspaceProps) {
+}, ref) => {
+  const sqlEditorRef = useRef<SqlEditorRef>(null)
+
+  // 暴露格式化方法给父组件
+  useImperativeHandle(ref, () => ({
+    formatSQL: () => {
+      sqlEditorRef.current?.formatSQL()
+    }
+  }), [])
+
   return (
     <ResizablePanelGroup
       direction="vertical"
@@ -34,6 +49,7 @@ export default function QueryWorkspace({
           {activeSession && activeSession.id && (
             <div className="flex-1 p-1 overflow-hidden">
               <SqlEditor
+                ref={sqlEditorRef}
                 value={sqlQuery}
                 onChange={updateTabContent}
                 readOnly={isExecuting}
@@ -83,4 +99,8 @@ export default function QueryWorkspace({
       </ResizablePanel>
     </ResizablePanelGroup>
   )
-}
+})
+
+QueryWorkspace.displayName = 'QueryWorkspace'
+
+export default QueryWorkspace

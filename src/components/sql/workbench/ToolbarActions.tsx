@@ -7,7 +7,8 @@ import {
   ChevronDownIcon, 
   Settings, 
   Zap, 
-  Eye
+  Eye,
+  FileTextIcon
 } from 'lucide-react'
 import {
   DropdownMenu,
@@ -29,6 +30,7 @@ interface ToolbarActionsProps {
   onStopExecution?: () => void;
   sqlQuery?: string;
   selectedText?: string; // 新增
+  onFormatSQL?: () => void; // 新增：格式化SQL回调
 }
 
 export default function ToolbarActions({
@@ -40,6 +42,7 @@ export default function ToolbarActions({
   onStopExecution,
   sqlQuery = '',
   selectedText = '', // 新增
+  onFormatSQL, // 新增：格式化SQL回调
 }: ToolbarActionsProps) {
 
   // 判断是否有可执行的内容
@@ -86,6 +89,18 @@ export default function ToolbarActions({
         >
           <BookOpenIcon className="h-4 w-4 mr-1" />
           打开SQL脚本
+        </Button>
+
+        {/* 格式化SQL按钮 */}
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={onFormatSQL}
+          disabled={!activeSession?.id || isExecuting}
+          title="格式化SQL代码"
+        >
+          <FileTextIcon className="h-4 w-4 mr-1" />
+          格式化SQL
         </Button>
 
         {/* 停止执行按钮 */}
