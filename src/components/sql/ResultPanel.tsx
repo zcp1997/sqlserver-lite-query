@@ -54,7 +54,7 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, isLoading = false }) 
     const baseTheme = resolvedTheme === "dark"
       ? themeQuartz.withPart(colorSchemeDark)
       : themeQuartz.withPart(colorSchemeLightWarm);
-    
+
     // 使用 withParams 添加字体配置
     return baseTheme.withParams({
       fontFamily: 'sans-serif, Maple Mono, monospace',
@@ -291,32 +291,38 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, isLoading = false }) 
         className="h-full flex flex-col overflow-hidden"
       >
         <div className="flex-shrink-0 border-b px-3">
-          <TabsList className="grid w-full" style={{ gridTemplateColumns: `repeat(${tabsData.length}, 1fr)` }}>
+          <TabsList className="flex space-x-1">
             {tabsData.map((tab) => (
-              <TabsTrigger key={tab.id} value={tab.id} className="flex items-center gap-2">
+              <TabsTrigger
+                key={tab.id}
+                value={tab.id}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg transition-all duration-200 ease-in-out data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:scale-105 hover:bg-muted"
+              >
                 <TableIcon className="h-4 w-4" />
                 <span>{tab.title}</span>
                 {tab.affectedRows !== undefined ? (
-                  <Badge variant="secondary" className="ml-1">
-                    {tab.affectedRows} 行
-                  </Badge>
-                ) : tab.affectedRows !== undefined && (!tab.resultSet.rows || tab.resultSet.rows.length === 0) ? (
-                  // 只有在没有数据行时才显示操作完成卡片
-                  <div className="h-full flex items-center justify-center">
-                    <Card className="w-96">
-                      <CardHeader>
-                        <CardTitle className="flex items-center gap-2">
-                          <CheckCircleIcon className="h-5 w-5 text-green-500" />
-                          操作完成
-                        </CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <p className="text-center text-lg">
-                          成功影响了 <strong className="text-primary">{tab.affectedRows}</strong> 行数据
-                        </p>
-                      </CardContent>
-                    </Card>
-                  </div>
+                  tab.resultSet?.rows?.length === 0 ? (
+                    // Display card only when there are no data rows
+                    <div className="h-full flex items-center justify-center">
+                      <Card className="w-96">
+                        <CardHeader>
+                          <CardTitle className="flex items-center gap-2">
+                            <CheckCircleIcon className="h-5 w-5 text-green-500" />
+                            操作完成
+                          </CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          <p className="text-center text-lg">
+                            成功影响了 <strong className="text-primary">{tab.affectedRows}</strong> 行数据
+                          </p>
+                        </CardContent>
+                      </Card>
+                    </div>
+                  ) : (
+                    <Badge variant="secondary" className="ml-1">
+                      {tab.affectedRows} 行
+                    </Badge>
+                  )
                 ) : (
                   <Badge variant="outline" className="ml-1">
                     {tab.rowCount} 行
@@ -326,7 +332,7 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, isLoading = false }) 
             ))}
           </TabsList>
         </div>
-
+        
         {tabsData.map((tab) => (
           <TabsContent
             key={tab.id}
