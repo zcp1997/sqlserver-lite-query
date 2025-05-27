@@ -43,7 +43,8 @@ export default function SqlWorkbenchPage() {
     loadWorkspace,
     saveCurrentWorkspace,
     setSqlTabs,
-    setActiveSqlTabId
+    setActiveSqlTabId,
+    handleTabRename
   } = useSqlTabs(activeSession)
 
   // 使用SQL执行逻辑
@@ -199,6 +200,7 @@ export default function SqlWorkbenchPage() {
         onTabClose={closeTab}
         onTabAdd={addNewTab}
         isExecuting={isExecuting}
+        onTabRename={handleTabRename}
       />
 
       {/* 工具栏按钮 - 传递选中文本 */}

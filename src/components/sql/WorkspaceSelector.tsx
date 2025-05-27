@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { Button } from '@/components/ui/button'
 import {
     Select,
@@ -23,7 +23,8 @@ import { Label } from '@/components/ui/label'
 import {
     Plus,
     Save,
-    Trash2
+    Trash2,
+    Pencil
 } from 'lucide-react'
 import { useSession } from '@/components/session/SessionContext'
 import { WorkspaceService } from '@/lib/workspace'
@@ -49,7 +50,9 @@ export default function WorkspaceSelector({
     const [workspaceName, setWorkspaceName] = useState('')
     const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
     const { toast } = useToast()
-
+    const [editingWorkspaceName, setEditingWorkspaceName] = useState('')
+    const [editWorkspaceDialogOpen, setEditWorkspaceDialogOpen] = useState(false)
+    
     // ✅ 添加 useEffect 来监听 activeSession 变化，重新加载工作区数据
     useEffect(() => {
         if (!isInitializing && activeSession) {
@@ -83,15 +86,13 @@ export default function WorkspaceSelector({
                 }
             }
         }
-    }, [activeSession, isInitializing, currentWorkspace, onWorkspaceChange, sessions, setActiveSession, toast])
+    }, [activeSession, isInitializing])
 
     // 获取当前选中的工作区
     const selectedWorkspace = currentWorkspace
 
     // 处理工作区切换
-    // 在 WorkspaceSelector.tsx 中修改 handleWorkspaceChange 函数
-
-    const handleWorkspaceChange = (workspaceId: string) => {
+    const handleWorkspaceChange = useCallback((workspaceId: string) => {
         // 重新获取最新的工作区数据
         const latestManager = WorkspaceService.getWorkspaces()
 
@@ -131,14 +132,12 @@ export default function WorkspaceSelector({
                 WorkspaceService.saveWorkspaces(updatedManager)
 
                 // 先更新父组件状态，确保currentWorkspace更新
-                // 这里使用 loadWorkspace 而不是简单的 onWorkspaceChange
                 onWorkspaceChange(workspace)
 
                 // 然后更新本地状态
                 setWorkspaceManager(updatedManager)
 
-                // 最后切换会话，这样当会话变化触发 useEffect 时，
-                // 它会看到 activeWorkspaceId 已经是我们想要的工作区
+                // 最后切换会话
                 setActiveSession(matchingSession)
 
                 console.log('WorkspaceSelector: Workspace changed to:', workspace.id, workspace.workspaceName)
@@ -148,11 +147,10 @@ export default function WorkspaceSelector({
                 toast.error('没有可用的数据库会话')
             }
         }
-    }
-
+    }, [sessions, onWorkspaceChange, setActiveSession, toast])
 
     // 处理创建新工作区
-    const handleCreateWorkspace = () => {
+    const handleCreateWorkspace = useCallback(() => {
         if (!activeSession || !workspaceName.trim()) return
 
         const newWorkspace = WorkspaceService.createWorkspace(
@@ -169,20 +167,20 @@ export default function WorkspaceSelector({
 
         setNewWorkspaceDialogOpen(false)
         setWorkspaceName('')
-    }
+    }, [activeSession, workspaceName, workspaceManager, onWorkspaceChange])
 
     // 处理保存当前工作区
-    const handleSaveCurrentWorkspace = () => {
+    const handleSaveCurrentWorkspace = useCallback(() => {
         onSaveWorkspace()
         // ✅ 保存后重新加载工作区数据，确保状态同步
         const latestManager = WorkspaceService.getWorkspaces()
         setWorkspaceManager(latestManager)
 
         toast.success('工作区保存成功')
-    }
+    }, [onSaveWorkspace, toast])
 
     // 处理删除工作区
-    const handleDeleteWorkspace = (workspaceId: string) => {
+    const handleDeleteWorkspace = useCallback((workspaceId: string) => {
         // 检查是否是最后一个工作区
         if (workspaceManager.workspaces.length <= 1) {
             toast.error('不能删除最后一个工作区')
@@ -207,18 +205,57 @@ export default function WorkspaceSelector({
         }
 
         setConfirmDeleteId(null)
-    }
+    }, [workspaceManager, selectedWorkspace, onWorkspaceChange, sessions, setActiveSession, toast])
 
     // 格式化工作区显示名称
-    const formatWorkspaceName = (workspace: Workspace) => {
+    const formatWorkspaceName = useCallback((workspace: Workspace) => {
         return workspace.workspaceName || `${workspace.connectionName} - ${workspace.database}`
-    }
+    }, [])
+
+    // 修改：处理工作区名称编辑保存
+    const handleWorkspaceNameSave = useCallback(() => {
+        if (!selectedWorkspace || !editingWorkspaceName.trim() || editingWorkspaceName === selectedWorkspace.workspaceName) {
+            setEditWorkspaceDialogOpen(false)
+            return
+        }
+        
+        const manager = WorkspaceService.getWorkspaces()
+        const updatedManager = WorkspaceService.updateWorkspace(manager, selectedWorkspace.id, { 
+            workspaceName: editingWorkspaceName.trim() 
+        })
+        setWorkspaceManager(updatedManager)
+        
+        // 更新当前选中的工作区，确保UI显示正确
+        const updatedWorkspace = updatedManager.workspaces.find(ws => ws.id === selectedWorkspace.id)
+        if (updatedWorkspace) {
+            // 通知父组件更新工作区
+            onWorkspaceChange(updatedWorkspace)
+        }
+        
+        setEditWorkspaceDialogOpen(false)
+        toast.success('工作区名称已更新')
+    }, [selectedWorkspace, editingWorkspaceName, onWorkspaceChange, toast])
+
+    // 处理对话框关闭
+    const handleDialogOpenChange = useCallback((open: boolean) => {
+        setEditWorkspaceDialogOpen(open)
+        // 如果对话框关闭，重置编辑状态
+        if (!open) {
+            setEditingWorkspaceName('')
+        }
+    }, [])
+
+    // 打开编辑对话框
+    const handleOpenEditDialog = useCallback(() => {
+        if (!selectedWorkspace) return
+        setEditingWorkspaceName(selectedWorkspace.workspaceName || '')
+        setEditWorkspaceDialogOpen(true)
+    }, [selectedWorkspace])
 
     return (
         <div className="flex items-center space-x-2">
-            {/* 工作区选择器 */}
+            {/* 工作区选择器 - 移除 key 属性避免强制重新渲染 */}
             <Select
-                key={selectedWorkspace?.id || 'no-workspace'}
                 value={selectedWorkspace?.id || ""}
                 onValueChange={handleWorkspaceChange}
                 disabled={!activeSession || isInitializing}
@@ -239,6 +276,19 @@ export default function WorkspaceSelector({
 
             {/* 操作按钮组 */}
             <div className="flex items-center space-x-1">
+                {/* 编辑工作区按钮 - 新增 */}
+                {selectedWorkspace && (
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={handleOpenEditDialog}
+                        disabled={isInitializing}
+                        title="编辑工作区名称"
+                    >
+                        <Pencil className="h-4 w-4" />
+                    </Button>
+                )}
+
                 {/* 新建工作区按钮 */}
                 <Dialog open={newWorkspaceDialogOpen} onOpenChange={setNewWorkspaceDialogOpen}>
                     <DialogTrigger asChild>
@@ -335,6 +385,49 @@ export default function WorkspaceSelector({
                             onClick={() => confirmDeleteId && handleDeleteWorkspace(confirmDeleteId)}
                         >
                             删除
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* 工作区名称编辑对话框 - 新增 */}
+            <Dialog open={editWorkspaceDialogOpen} onOpenChange={handleDialogOpenChange}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>编辑工作区名称</DialogTitle>
+                        <DialogDescription>
+                            为当前工作区设置一个新名称
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="grid gap-4 py-4">
+                        <div className="grid grid-cols-4 items-center gap-4">
+                            <Label htmlFor="edit-workspace-name" className="text-right">
+                                工作区名称
+                            </Label>
+                            <Input
+                                id="edit-workspace-name"
+                                value={editingWorkspaceName}
+                                onChange={(e) => setEditingWorkspaceName(e.target.value)}
+                                className="col-span-3"
+                                placeholder="输入工作区名称"
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter' && editingWorkspaceName.trim()) {
+                                        handleWorkspaceNameSave()
+                                    }
+                                }}
+                                autoFocus
+                            />
+                        </div>
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setEditWorkspaceDialogOpen(false)}>
+                            取消
+                        </Button>
+                        <Button
+                            onClick={handleWorkspaceNameSave}
+                            disabled={!editingWorkspaceName.trim()}
+                        >
+                            保存
                         </Button>
                     </DialogFooter>
                 </DialogContent>
