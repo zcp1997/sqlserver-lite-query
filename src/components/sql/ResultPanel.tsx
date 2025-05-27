@@ -46,6 +46,7 @@ const ResultPanel: React.FC<ResultPanelProps> = React.memo(({ result, isLoading 
   const [quickFilterText, setQuickFilterText] = useState('');
   const [columnSearchText, setColumnSearchText] = useState('');
   const [highlightedColumn, setHighlightedColumn] = useState<string | null>(null);
+  const [gridReady, setGridReady] = useState<Record<string, boolean>>({});
 
   const { resolvedTheme } = useTheme()
 
@@ -219,13 +220,24 @@ const ResultPanel: React.FC<ResultPanelProps> = React.memo(({ result, isLoading 
     }))
   }, [highlightedColumn, toast])
 
-  // 处理网格准备就绪 - 移除列状态持久化逻辑
+  // 处理网格准备就绪
   const onGridReady = useCallback((params: GridReadyEvent, tabId: string) => {
     setGridApis(prev => ({
       ...prev,
       [tabId]: params.api
     }))
+    setGridReady(prev => ({
+      ...prev,
+      [tabId]: true
+    }))
   }, [])
+  
+  const autoSizeStrategy = useMemo(() => {
+    return {
+      type: 'fitCellContents' as const
+    };
+  }, []);
+
 
   // 导出数据为CSV
   const exportToCsv = useCallback((tabId: string) => {
@@ -417,36 +429,48 @@ const ResultPanel: React.FC<ResultPanelProps> = React.memo(({ result, isLoading 
               {/* 表格内容 */}
               <div className="flex-1 overflow-hidden">
                 {tab.resultSet.rows && tab.resultSet.rows.length > 0 ? (
-                  <div className="ag-theme-alpine h-full w-full">
-                    <AgGridReact
-                      theme={myTheme}
-                      gridOptions={gridOptions}
-                      rowData={tab.resultSet.rows}
-                      columnDefs={generateColumnDefs(tab.resultSet)}
-                      defaultColDef={{
-                        sortable: true,
-                        filter: true,
-                        resizable: true,
-                        minWidth: 120,
-                        cellStyle: { fontSize: '14px' }
-                      }}
-                      onGridReady={(params) => onGridReady(params, tab.id)}
-                      enableCellTextSelection={true}
-                      suppressMenuHide={true}
-                      animateRows={true}
-                      pagination={true}
-                      paginationPageSize={100}
-                      paginationPageSizeSelector={[50, 100, 200, 500]}
-                      suppressPaginationPanel={false}
-                      suppressScrollOnNewData={true}
-                      ensureDomOrder={true}
-                      suppressRowHoverHighlight={false}
-                      rowHeight={35}
-                      headerHeight={40}
-                      quickFilterText={quickFilterText}
-                      cacheQuickFilter={true}
-                      suppressColumnMoveAnimation={false}
-                    />
+                  <div className="relative h-full w-full">
+                    {/* 加载遮罩 */}
+                    {!gridReady[tab.id] && (
+                      <div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm z-10">
+                        <div className="flex items-center gap-2">
+                          <div className="animate-spin h-5 w-5 border-2 border-primary border-t-transparent rounded-full" />
+                          <span className="text-sm text-muted-foreground">正在渲染表格...</span>
+                        </div>
+                      </div>
+                    )}
+                    <div className="ag-theme-alpine h-full w-full">
+                      <AgGridReact
+                        theme={myTheme}
+                        gridOptions={gridOptions}
+                        rowData={tab.resultSet.rows}
+                        columnDefs={generateColumnDefs(tab.resultSet)}
+                        defaultColDef={{
+                          sortable: true,
+                          filter: true,
+                          resizable: true,
+                          minWidth: 120,
+                          cellStyle: { fontSize: '14px' }
+                        }}
+                        onGridReady={(params) => onGridReady(params, tab.id)}
+                        enableCellTextSelection={true}
+                        suppressMenuHide={true}
+                        animateRows={true}
+                        pagination={true}
+                        paginationPageSize={100}
+                        paginationPageSizeSelector={[50, 100, 200, 500]}
+                        suppressPaginationPanel={false}
+                        suppressScrollOnNewData={true}
+                        ensureDomOrder={true}
+                        suppressRowHoverHighlight={false}
+                        rowHeight={35}
+                        headerHeight={40}
+                        quickFilterText={quickFilterText}
+                        cacheQuickFilter={true}
+                        suppressColumnMoveAnimation={false}
+                        autoSizeStrategy={autoSizeStrategy}
+                      />
+                    </div>
                   </div>
                 ) : tab.affectedRows !== undefined && tab.affectedRows > 0 ? (
                   <div className="h-full flex items-center justify-center">

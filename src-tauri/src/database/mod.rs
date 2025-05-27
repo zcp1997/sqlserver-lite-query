@@ -8,6 +8,7 @@ use tiberius::{AuthMethod, Client, Config, EncryptionLevel, Row};
 use tokio::net::TcpStream;
 use tokio::time::timeout;
 use tokio_util::compat::{Compat, TokioAsyncWriteCompatExt};
+use rust_decimal::Decimal;
 
 pub mod sql_parser;
 pub use sql_parser::{SqlParser, SqlStatementType};
@@ -158,6 +159,13 @@ fn get_value_as_json(row: &Row, index: usize) -> Result<serde_json::Value, Strin
         return Ok(serde_json::to_value(val).map_err(|e| format!("无法将f64转换为JSON: {}", e))?);
     } else if let Ok(Some(val)) = row.try_get::<bool, _>(index) {
         return Ok(serde_json::to_value(val).map_err(|e| format!("无法将bool转换为JSON: {}", e))?);
+    } else if let Ok(Some(val)) = row.try_get::<Decimal, _>(index) {
+        // 处理 SQL Server 的 decimal/numeric 类型
+        return Ok(serde_json::to_value(val).map_err(|e| format!("无法将Decimal转换为JSON: {}", e))?);
+    } else if let Ok(Some(val)) = row.try_get::<tiberius::numeric::Numeric, _>(index) {
+        // 处理 Tiberius 原生的 Numeric 类型
+        let decimal_val = Decimal::from_i128_with_scale(val.value(), val.scale() as u32);
+        return Ok(serde_json::to_value(decimal_val).map_err(|e| format!("无法将Numeric转换为JSON: {}", e))?);
     } else if let Ok(Some(val)) = row.try_get::<chrono::NaiveDateTime, _>(index) {
         return Ok(
             serde_json::to_value(val).map_err(|e| format!("无法将DateTime转换为JSON: {}", e))?
@@ -177,6 +185,7 @@ fn get_value_as_json(row: &Row, index: usize) -> Result<serde_json::Value, Strin
         return Ok(serde_json::Value::Null);
     }
     // 如果所有尝试都失败，记录信息并返回Null
+    println!("警告: 列索引 {} 的数据类型未能识别，返回 NULL", index);
     Ok(serde_json::Value::Null)
 }
 
