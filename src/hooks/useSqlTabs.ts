@@ -22,6 +22,7 @@ interface UseSqlTabsReturn {
   setSqlTabs: (tabs: EditorTab[]) => void
   setActiveSqlTabId: (tabId: string) => void
   handleTabRename: (tabId: string, newTitle: string) => void
+  moveTab: (newTabs: EditorTab[]) => void
 }
 
 export function useSqlTabs(activeSession: Session | null): UseSqlTabsReturn {
@@ -357,6 +358,17 @@ export function useSqlTabs(activeSession: Session | null): UseSqlTabsReturn {
     })
   }, [currentWorkspace])
 
+  // 拖拽排序tab
+  const moveTab = useCallback((newTabs: EditorTab[]) => {
+    setSqlTabs(newTabs)
+    if (currentWorkspace) {
+      const manager = WorkspaceService.getWorkspaces()
+      WorkspaceService.updateWorkspace(manager, currentWorkspace.id, {
+        tabs: newTabs
+      })
+    }
+  }, [currentWorkspace])
+
   return {
     sqlTabs,
     activeSqlTabId,
@@ -385,6 +397,7 @@ export function useSqlTabs(activeSession: Session | null): UseSqlTabsReturn {
     saveCurrentWorkspace,
     setSqlTabs,
     setActiveSqlTabId,
-    handleTabRename
+    handleTabRename,
+    moveTab
   };
 }
