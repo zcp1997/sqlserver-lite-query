@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useMemo, useState, useCallback } from 'react'
+import React, { useMemo, useState, useCallback, useEffect, useRef } from 'react'
 import { AgGridReact } from 'ag-grid-react'
 import { AllCommunityModule, ModuleRegistry, ColDef, GridReadyEvent, GridApi, themeQuartz, colorSchemeDark, colorSchemeLightWarm } from 'ag-grid-community'
 import { AG_GRID_LOCALE_CN } from '@ag-grid-community/locale'
@@ -23,6 +23,7 @@ import {
   ClockIcon
 } from 'lucide-react'
 import { useTheme } from "next-themes"
+import { debounce } from 'lodash'
 
 ModuleRegistry.registerModules([AllCommunityModule]);
 
@@ -39,16 +40,95 @@ interface GridTabData {
   affectedRows?: number
 }
 
+// 简化的单元格渲染器工厂函数
+const createCellRenderer = (toast: any) => {
+  return (params: any) => {
+    const value = params.value;
+    const columnType = params.colDef?.columnType;
+    
+    if (value === null || value === undefined) {
+      return (
+        <span style={{ color: '#999', fontStyle: 'italic' }}>
+          NULL
+        </span>
+      );
+    }
+
+    if (columnType === 'Datetime' || columnType === 'Datetimen') {
+      try {
+        const date = new Date(value);
+        if (!isNaN(date.getTime())) {
+          return date.toLocaleString('zh-CN', {
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit'
+          });
+        }
+      } catch (e) {
+        // 日期解析失败，返回原始值
+      }
+    }
+
+    if (typeof value === 'boolean') {
+      return value ? '是' : '否';
+    }
+
+    if (typeof value === 'string' && value.length > 100) {
+      return (
+        <div className="flex items-center gap-2">
+          <span
+            title={value}
+            style={{ cursor: 'help' }}
+          >
+            {value.substring(0, 100)}...
+          </span>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-6 w-6 p-0"
+            onClick={(e) => {
+              e.stopPropagation();
+              navigator.clipboard.writeText(value)
+                .then(() => {
+                  toast.success('文本已复制');
+                })
+                .catch(() => {
+                });
+            }}
+            title="复制完整内容"
+          >
+            <CopyIcon className="h-4 w-4" />
+          </Button>
+        </div>
+      );
+    }
+
+    return value?.toString() || '';
+  };
+};
+
 const ResultPanel: React.FC<ResultPanelProps> = React.memo(({ result, isLoading = false }) => {
   const { toast } = useToast();
-  const [activeTab, setActiveTab] = useState<string>('')
-  const [gridApis, setGridApis] = useState<Record<string, GridApi>>({})
+  const [activeTab, setActiveTab] = useState<string>('');
+  const [gridApis, setGridApis] = useState<Record<string, GridApi>>({});
   const [quickFilterText, setQuickFilterText] = useState('');
   const [columnSearchText, setColumnSearchText] = useState('');
   const [highlightedColumn, setHighlightedColumn] = useState<string | null>(null);
   const [gridReady, setGridReady] = useState<Record<string, boolean>>({});
+  const gridRefs = useRef<Record<string, React.RefObject<AgGridReact<any> | null>>>({});
 
-  const { resolvedTheme } = useTheme()
+  const { resolvedTheme } = useTheme();
+
+  // 防抖处理快速过滤
+  const debouncedSetQuickFilter = useCallback(
+    debounce((value: string) => {
+      setQuickFilterText(value);
+    }, 200),
+    []
+  );
 
   // 根据 resolvedTheme 动态生成 theme
   const myTheme = useMemo(() => {
@@ -62,6 +142,9 @@ const ResultPanel: React.FC<ResultPanelProps> = React.memo(({ result, isLoading 
       cellFontFamily: 'sans-serif, Maple Mono, monospace',
     });
   }, [resolvedTheme]);
+
+  // 预处理列定义
+  const cellRenderer = useMemo(() => createCellRenderer(toast), [toast]);
 
   // 处理结果集数据，生成标签页数据
   const tabsData = useMemo<GridTabData[]>(() => {
@@ -84,183 +167,162 @@ const ResultPanel: React.FC<ResultPanelProps> = React.memo(({ result, isLoading 
         affectedRows
       }
     })
-  }, [result])
+  }, [result]);
+
+  // 为每个标签页创建grid引用
+  useEffect(() => {
+    tabsData.forEach(tab => {
+      if (!gridRefs.current[tab.id]) {
+        gridRefs.current[tab.id] = React.createRef<AgGridReact<any> | null>();
+      }
+    });
+  }, [tabsData]);
 
   // 设置默认活动标签页
-  React.useEffect(() => {
+  useEffect(() => {
     if (tabsData.length > 0 && !activeTab) {
       setActiveTab(tabsData[0].id)
     }
-  }, [tabsData, activeTab])
+  }, [tabsData, activeTab]);
 
-  // 查找并高亮列
-  const findAndHighlightColumn = useCallback((tabId: string) => {
-    const gridApi = gridApis[tabId];
-    if (!gridApi || !columnSearchText) return false;
-
-    const allColumns = gridApi.getColumns();
-    if (!allColumns) {
-      return false;
-    }
-    const foundColumn = allColumns.find(col =>
-      col.getColDef().headerName?.toLowerCase().includes(columnSearchText.toLowerCase())
-    );
-
-    if (foundColumn) {
-      setHighlightedColumn(foundColumn.getColId());
-      gridApi.ensureColumnVisible(foundColumn);
-
-      setTimeout(() => {
-        const headerCell = document.querySelector(`.ag-header-cell[col-id="${foundColumn.getColId()}"]`);
-        if (headerCell) {
-          headerCell.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
-        }
-      }, 100);
-
-      toast.info('列已找到', { description: `已找到并高亮显示列: ${foundColumn.getColDef().headerName}` })
-
-      setTimeout(() => {
+  // 高亮列的处理
+  useEffect(() => {
+    if (highlightedColumn && activeTab && gridApis[activeTab]) {
+      gridApis[activeTab].redrawRows();
+      
+      // 5秒后自动取消高亮
+      const timeoutId = setTimeout(() => {
         setHighlightedColumn(null);
+        gridApis[activeTab]?.redrawRows();
       }, 5000);
-
-      return true;
-    } else {
-      toast.error('未找到列', { description: `没有找到包含 "${columnSearchText}" 的列` })
+      
+      return () => clearTimeout(timeoutId);
     }
-    return false;
-  }, [gridApis, columnSearchText, toast]);
+  }, [highlightedColumn, activeTab, gridApis]);
 
-  // 生成表格列定义 - 使用 useCallback 缓存
+  // 查找并高亮列 - 优化防抖
+  const findAndHighlightColumn = useCallback(
+    debounce((tabId: string) => {
+      const gridApi = gridApis[tabId];
+      if (!gridApi || !columnSearchText) return false;
+
+      const allColumns = gridApi.getColumns();
+      if (!allColumns) {
+        return false;
+      }
+      const foundColumn = allColumns.find(col =>
+        col.getColDef().headerName?.toLowerCase().includes(columnSearchText.toLowerCase())
+      );
+
+      if (foundColumn) {
+        setHighlightedColumn(foundColumn.getColId());
+        gridApi.ensureColumnVisible(foundColumn);
+
+        setTimeout(() => {
+          const headerCell = document.querySelector(`.ag-header-cell[col-id="${foundColumn.getColId()}"]`);
+          if (headerCell) {
+            headerCell.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+          }
+        }, 100);
+
+        toast.info('列已找到', { description: `已找到并高亮显示列: ${foundColumn.getColDef().headerName}` })
+        return true;
+      } else {
+        toast.error('未找到列', { description: `没有找到包含 "${columnSearchText}" 的列` })
+      }
+      return false;
+    }, 200),
+    [gridApis, columnSearchText, toast]
+  );
+
+  // 优化列定义生成 - 不再依赖highlightedColumn
   const generateColumnDefs = useCallback((resultSet: ResultSet): ColDef[] => {
     if (!resultSet.columns || resultSet.columns.length === 0) {
       return []
     }
 
-    return resultSet.columns.map((column, index) => ({
-      headerName: column,
-      field: column,
-      sortable: true,
-      filter: true,
-      resizable: true,
-      minWidth: 120,
-      flex: 1,
-      cellStyle: (params) => {
-        if (highlightedColumn === column) {
-          return { backgroundColor: 'rgba(25, 118, 210, 0.2)' };
-        }
-        return null;
-      },
-      cellRenderer: (params: any) => {
-        const value = params.value
-        if (value === null || value === undefined) {
-          return (
-            <span style={{ color: '#999', fontStyle: 'italic' }}>
-              NULL
-            </span>
-          )
-        }
-
-        if (resultSet.column_types && resultSet.column_types[index]) {
-          const columnType = resultSet.column_types[index]
-          if ((columnType === 'Datetime' || columnType === 'Datetimen') && value) {
-            try {
-              const date = new Date(value)
-              if (!isNaN(date.getTime())) {
-                return date.toLocaleString('zh-CN', {
-                  year: 'numeric',
-                  month: '2-digit',
-                  day: '2-digit',
-                  hour: '2-digit',
-                  minute: '2-digit',
-                  second: '2-digit'
-                })
-              }
-            } catch (e) {
-              // 日期解析失败，返回原始值
-            }
+    return resultSet.columns.map((column, index) => {
+      // 预处理列类型信息
+      const columnType = resultSet.column_types ? resultSet.column_types[index] : undefined;
+      
+      return {
+        headerName: column,
+        field: column,
+        sortable: true,
+        filter: true,
+        resizable: true,
+        minWidth: 120,
+        flex: 1,
+        columnType,
+        columnIndex: index,
+        // 通过getter函数计算样式，避免在列定义中硬编码
+        cellStyle: (params) => {
+          if (highlightedColumn === column) {
+            return { backgroundColor: 'rgba(25, 118, 210, 0.2)' };
           }
-        }
-
-        if (typeof value === 'boolean') {
-          return value ? '是' : '否'
-        }
-
-        if (typeof value === 'string' && value.length > 100) {
-          return (
-            <div className="flex items-center gap-2">
-              <span
-                title={value}
-                style={{ cursor: 'help' }}
-              >
-                {value.substring(0, 100)}...
-              </span>
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-6 w-6 p-0"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  navigator.clipboard.writeText(value)
-                    .then(() => {
-                      toast.success('文本已复制');
-                    })
-                    .catch(() => {
-                    });
-                }}
-                title="复制完整内容"
-              >
-                <CopyIcon className="h-4 w-4" />
-              </Button>
-            </div>
-          )
-        }
-
-        return value?.toString() || ''
-      }
-    }))
-  }, [highlightedColumn, toast])
+          return null;
+        },
+        cellRenderer
+      };
+    });
+  }, [cellRenderer, highlightedColumn]);
 
   // 处理网格准备就绪
   const onGridReady = useCallback((params: GridReadyEvent, tabId: string) => {
     setGridApis(prev => ({
       ...prev,
       [tabId]: params.api
-    }))
+    }));
+    
     setGridReady(prev => ({
       ...prev,
       [tabId]: true
-    }))
-  }, [])
-  
-  const autoSizeStrategy = useMemo(() => {
-    return {
-      type: 'fitCellContents' as const
-    };
+    }));
   }, []);
 
-
-  // 导出数据为CSV
+  // 导出数据为CSV - 保持不变
   const exportToCsv = useCallback((tabId: string) => {
     const gridApi = gridApis[tabId]
     if (gridApi) {
       gridApi.exportDataAsCsv({
         fileName: `query_result_${tabId}.csv`
-      })
-      toast.error('导出成功', { description: '数据已导出为CSV文件' })
+      });
+      toast.success('导出成功', { description: '数据已导出为CSV文件' });
     }
-  }, [gridApis, toast])
+  }, [gridApis, toast]);
 
-  // 自适应列宽
-  const autoSizeColumns = useCallback((tabId: string) => {
-    const gridApi = gridApis[tabId]
-    if (gridApi) {
-      gridApi.sizeColumnsToFit()
-    }
-  }, [gridApis])
+  // 自适应列宽 - 优化防抖
+  const autoSizeColumns = useCallback(
+    debounce((tabId: string) => {
+      const gridApi = gridApis[tabId];
+      if (gridApi) {
+        gridApi.autoSizeAllColumns();
+      }
+    }, 100),
+    [gridApis]
+  );
 
-  const gridOptions = {
+  // AG Grid本地化配置 - 保持不变
+  const gridOptions = useMemo(() => ({
     localeText: AG_GRID_LOCALE_CN,
-  };
+    // 优化拖拽性能的设置
+    suppressMovableColumns: false,
+    suppressColumnMoveAnimation: true,
+    enableCellTextSelection: true,
+    suppressMenuHide: true,
+    animateRows: false, // 关闭行动画以提高性能
+    suppressScrollOnNewData: true,
+    rowBuffer: 20, // 增加缓冲行数以提高滚动性能
+  }), []);
+
+  // 预处理行数据，优化渲染性能
+  const getProcessedRowData = useCallback((resultSet: ResultSet) => {
+    if (!resultSet.rows) return [];
+    
+    // 直接返回原始数据，因为我们已经优化了单元格渲染器
+    // 如果需要预处理数据，可以在这里进行
+    return resultSet.rows;
+  }, []);
 
   if (isLoading) {
     return (
@@ -351,7 +413,7 @@ const ResultPanel: React.FC<ResultPanelProps> = React.memo(({ result, isLoading 
                       </div>
                     )}
 
-                    {/* 全局搜索框 */}
+                    {/* 全局搜索框 - 使用防抖 */}
                     <div className="flex items-center gap-2 ml-4">
                       <div className="relative">
                         <SearchIcon className="h-4 w-4 absolute left-2 top-1/2 transform -translate-y-1/2 text-muted-foreground" />
@@ -359,8 +421,8 @@ const ResultPanel: React.FC<ResultPanelProps> = React.memo(({ result, isLoading 
                           type="text"
                           placeholder="搜索所有数据..."
                           className="pl-8 h-8 text-sm"
-                          value={quickFilterText}
-                          onChange={(e) => setQuickFilterText(e.target.value)}
+                          defaultValue={quickFilterText}
+                          onChange={(e) => debouncedSetQuickFilter(e.target.value)}
                         />
                         {quickFilterText && (
                           <Button
@@ -441,9 +503,10 @@ const ResultPanel: React.FC<ResultPanelProps> = React.memo(({ result, isLoading 
                     )}
                     <div className="ag-theme-alpine h-full w-full">
                       <AgGridReact
+                        ref={gridRefs.current[tab.id]}
                         theme={myTheme}
                         gridOptions={gridOptions}
-                        rowData={tab.resultSet.rows}
+                        rowData={getProcessedRowData(tab.resultSet)}
                         columnDefs={generateColumnDefs(tab.resultSet)}
                         defaultColDef={{
                           sortable: true,
@@ -453,22 +516,21 @@ const ResultPanel: React.FC<ResultPanelProps> = React.memo(({ result, isLoading 
                           cellStyle: { fontSize: '14px' }
                         }}
                         onGridReady={(params) => onGridReady(params, tab.id)}
-                        enableCellTextSelection={true}
-                        suppressMenuHide={true}
-                        animateRows={true}
+                        enableCellTextSelection={gridOptions.enableCellTextSelection}
                         pagination={true}
                         paginationPageSize={100}
                         paginationPageSizeSelector={[50, 100, 200, 500]}
                         suppressPaginationPanel={false}
-                        suppressScrollOnNewData={true}
                         ensureDomOrder={true}
                         suppressRowHoverHighlight={false}
                         rowHeight={35}
                         headerHeight={40}
                         quickFilterText={quickFilterText}
                         cacheQuickFilter={true}
-                        suppressColumnMoveAnimation={false}
-                        autoSizeStrategy={autoSizeStrategy}
+                        // 拖拽优化
+                        suppressColumnMoveAnimation={true}
+                        // 渲染优化
+                        rowBuffer={gridOptions.rowBuffer}
                       />
                     </div>
                   </div>
@@ -504,12 +566,33 @@ const ResultPanel: React.FC<ResultPanelProps> = React.memo(({ result, isLoading 
     </div>
   )
 }, (prevProps, nextProps) => {
-  // 自定义比较函数，只有当 result 或 isLoading 真正改变时才重新渲染
-  return (
-    prevProps.result === nextProps.result &&
-    prevProps.isLoading === nextProps.isLoading
-  );
-})
+  // 优化比较函数，更精确地判断何时需要重新渲染
+  const prevResultSets = prevProps.result?.result_sets;
+  const nextResultSets = nextProps.result?.result_sets;
+  
+  // 如果加载状态变化，需要重新渲染
+  if (prevProps.isLoading !== nextProps.isLoading) {
+    return false;
+  }
+  
+  // 如果结果集为空，比较简单属性
+  if (!prevResultSets || !nextResultSets) {
+    return prevResultSets === nextResultSets;
+  }
+  
+  // 如果结果集长度不同，需要重新渲染
+  if (prevResultSets.length !== nextResultSets.length) {
+    return false;
+  }
+  
+  // 比较执行时间
+  if (prevProps.result?.execution_time !== nextProps.result?.execution_time) {
+    return false;
+  }
+  
+  // 对于相同结构的结果集，可以认为是相同的（数据通常不会变）
+  return true;
+});
 
 ResultPanel.displayName = 'ResultPanel'
 

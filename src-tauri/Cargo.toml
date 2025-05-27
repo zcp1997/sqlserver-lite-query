@@ -45,6 +45,7 @@ backtrace = "0.3"
 # SQL解析器
 sqlparser = "0.49"
 regex = "1.10"
+rust_decimal = "1.37.1"
 
 [features]
 # This feature is used for production builds or when a dev server is not specified, DO NOT REMOVE!!
