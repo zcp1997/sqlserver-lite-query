@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from 'react'
+import { useState, useCallback } from 'react'
 import { useSession } from '@/components/session/SessionContext'
 import { Button } from '@/components/ui/button'
 import {
@@ -39,7 +39,7 @@ export default function SessionSelector() {
   const [error, setError] = useState<string | null>(null)
 
   // 处理会话切换
-  const handleSessionChange = (session_id: string) => {
+  const handleSessionChange = useCallback((session_id: string) => {
     setError(null)
 
     if (!session_id) {
@@ -61,19 +61,19 @@ export default function SessionSelector() {
       setActiveSession(selectedSession)
       toast.success(`已切换到会话: ${selectedSession.connectionName} - ${selectedSession.database}`)
     }
-  }
+  }, [sessions, setActiveSession, toast])
 
   // 处理会话关闭
-  const handleSessionClose = (sessionId: string) => {
+  const handleSessionClose = useCallback((sessionId: string) => {
     if (!sessionId) {
       console.warn('Empty session ID provided to handleSessionClose')
       return
     }
     closeSession(sessionId)
-  }
+  }, [closeSession])
 
   // 处理连接选择
-  const handleConnect = async (connection: ConnectionConfig) => {
+  const handleConnect = useCallback(async (connection: ConnectionConfig) => {
     if (!connection || !connection.id) {
       setError('Invalid connection configuration')
       return
@@ -96,13 +96,13 @@ export default function SessionSelector() {
     } finally {
       setIsConnecting(false)
     }
-  }
+  }, [createSession])
 
   // 获取当前活动会话的显示名称
-  const getActiveSessionDisplay = () => {
+  const getActiveSessionDisplay = useCallback(() => {
     if (!activeSession) return '选择数据库会话'
     return `${activeSession.connectionName} - ${activeSession.database}`
-  }
+  }, [activeSession])
 
   if (isInitializing) {
     return (

@@ -1,11 +1,12 @@
 "use client"
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useCallback, forwardRef, useImperativeHandle } from 'react'
 import Editor, { OnMount, Monaco as MonacoReact, loader } from '@monaco-editor/react'
 import { useTheme } from 'next-themes'
 import * as monaco from 'monaco-editor';
 import { search_column_details, search_table_names } from '@/lib/api'
 import { useSession } from '@/components/session/SessionContext'
+import { format } from 'sql-formatter';
 
 loader.config({ monaco });
 
@@ -13,7 +14,12 @@ interface SqlEditorProps {
   value: string
   onChange: (value: string) => void
   readOnly?: boolean
-  onSelectionChange?: (selectedText: string) => void // 新增
+  onSelectionChange?: (selectedText: string) => void
+}
+
+// 暴露给父组件的方法
+export interface SqlEditorRef {
+  formatSQL: () => void
 }
 
 // SQL关键词
@@ -31,20 +37,17 @@ const baseSqlKeywordsArray = [
   'SSF', 'ST100'
 ];
 
-export default function SqlEditor({
+const SqlEditor = forwardRef<SqlEditorRef, SqlEditorProps>(({
   value,
   onChange,
   readOnly = false,
   onSelectionChange
-}: SqlEditorProps) {
+}, ref) => {
   const editorRef = useRef<any>(null)
   const monacoRef = useRef<MonacoReact | null>(null)
   const completionProviderRef = useRef<monaco.IDisposable | null>(null)
   const { theme } = useTheme()
   const { activeSession } = useSession()
-
-  // 新增：跟踪选中的文本
-  const [selectedSqlQuery, setSelectedSqlQuery] = useState<string>('')
 
   // Helper to create completion items consistently
   const createCompletionItem = (
@@ -80,10 +83,8 @@ export default function SqlEditor({
       const selection = editor.getSelection();
       if (selection && !selection.isEmpty()) {
         const selectedText = editor.getModel()?.getValueInRange(selection) || '';
-        setSelectedSqlQuery(selectedText);
         onSelectionChange?.(selectedText); // 新增：通知父组件
       } else {
-        setSelectedSqlQuery('');
         onSelectionChange?.(''); // 新增：通知父组件
       }
     });
@@ -361,6 +362,54 @@ export default function SqlEditor({
     };
   }, []);
 
+  // 格式化SQL函数
+  const handleFormatSQL = useCallback(() => {
+    if (editorRef.current) {
+      console.log('Formatting SQL...');
+      
+      // 获取当前SQL文本
+      const currentValue = editorRef.current.getValue();
+      
+      try {
+        // 分割多条SQL语句（保留原始分号）
+        const statements = currentValue.split(';');
+        
+        // 对非空语句进行格式化
+        const formattedStatements = statements.map((stmt: string, index: number) => {
+          const trimmed = stmt.trim();
+          if (!trimmed) return '';
+          
+          // 格式化单条语句
+          const formatted = format(trimmed, { 
+            language: 'tsql',
+            indentStyle: 'standard',
+            keywordCase: 'upper',
+            linesBetweenQueries: 2,
+            // 添加此配置以支持中文标识符
+            identifierCase: 'preserve' 
+          });
+          
+          // 如果不是最后一个非空语句，添加分号
+          return formatted + (index < statements.length - 1 && trimmed ? ';' : '');
+        });
+        
+        // 用双换行符连接语句
+        const formattedValue = formattedStatements.join('\n\n').trim();
+        
+        // 更新编辑器内容
+        editorRef.current.setValue(formattedValue);
+        onChange(formattedValue);
+      } catch (error) {
+        console.error('SQL formatting error:', error);
+      }
+    }
+  }, [onChange]);
+
+  // 暴露方法给父组件
+  useImperativeHandle(ref, () => ({
+    formatSQL: handleFormatSQL
+  }), [handleFormatSQL])
+
   return (
     <div className="h-full w-full overflow-hidden border rounded-md">
       <Editor
@@ -378,7 +427,7 @@ export default function SqlEditor({
           readOnly,
           fontSize: 14,
           fontFamily: [
-            '"Maple Mono"',           // 主字体（英文）
+            '"JetBrainsMono"',
             '"Source Code Pro"',      // 更好的中文兼容性
             '"Microsoft YaHei Mono"', // Windows 中文等宽
             '"PingFang SC"',          // macOS 中文
@@ -410,4 +459,6 @@ export default function SqlEditor({
       />
     </div>
   )
-}
+})
+
+export default SqlEditor

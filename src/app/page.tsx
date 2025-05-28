@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import SessionSelector from '@/components/session/SessionSelector'
 import WorkspaceSelector from '@/components/sql/WorkspaceSelector'
 import EditorTabs from '@/components/sql/workbench/EditorTabs'
@@ -22,13 +22,14 @@ import { DatabaseObjectType } from '@/types/database'
 import ToolbarActions from '@/components/sql/workbench/ToolbarActions'
 import DatabaseObjectsDialog from '@/components/sql/workbench/DatabaseObjectsDialog'
 import SqlScriptsDialog from '@/components/sql/workbench/SqlScriptsDialog'
-import QueryWorkspace from '@/components/sql/workbench/QueryWorkspace'
+import QueryWorkspace, { QueryWorkspaceRef } from '@/components/sql/workbench/QueryWorkspace'
 import { Workspace } from '@/types/workspace'
 
 export default function SqlWorkbenchPage() {
-  const { activeSession } = useSession()
+  // 使用 Session context
+  const { activeSession, isInitializing } = useSession()
 
-  // 使用封装的标签页逻辑
+  // SQL Tabs 状态管理
   const {
     sqlTabs,
     activeSqlTabId,
@@ -42,7 +43,9 @@ export default function SqlWorkbenchPage() {
     loadWorkspace,
     saveCurrentWorkspace,
     setSqlTabs,
-    setActiveSqlTabId
+    setActiveSqlTabId,
+    handleTabRename,
+    moveTab
   } = useSqlTabs(activeSession)
 
   // 使用SQL执行逻辑
@@ -64,6 +67,9 @@ export default function SqlWorkbenchPage() {
   // 新增：存储选中文本的状态
   const [selectedText, setSelectedText] = useState<string>('')
 
+  // 新增：QueryWorkspace的引用
+  const queryWorkspaceRef = useRef<QueryWorkspaceRef>(null)
+
   // 新增：处理选中文本变化
   const handleSelectionChange = (selectedText: string) => {
     setSelectedText(selectedText)
@@ -73,6 +79,11 @@ export default function SqlWorkbenchPage() {
   const handleWorkspaceChange = (workspace: Workspace) => {
     console.log('Main page: handleWorkspaceChange called with workspace:', workspace.id, workspace.workspaceName)
     loadWorkspace(workspace)
+  }
+
+  // 新增：处理格式化SQL
+  const handleFormatSQL = () => {
+    queryWorkspaceRef.current?.formatSQL()
   }
 
   // 修改：处理执行SQL查询，支持选中文本参数
@@ -190,6 +201,8 @@ export default function SqlWorkbenchPage() {
         onTabClose={closeTab}
         onTabAdd={addNewTab}
         isExecuting={isExecuting}
+        onTabRename={handleTabRename}
+        onTabSort={moveTab}
       />
 
       {/* 工具栏按钮 - 传递选中文本 */}
@@ -202,10 +215,12 @@ export default function SqlWorkbenchPage() {
         onStopExecution={stopExecution}
         sqlQuery={sqlQuery}
         selectedText={selectedText} // 新增：传递选中文本
+        onFormatSQL={handleFormatSQL} // 新增：传递格式化回调
       />
 
       {/* 主要查询工作区 - 传递选中文本变化回调 */}
       <QueryWorkspace
+        ref={queryWorkspaceRef}
         sqlQuery={sqlQuery}
         updateTabContent={updateTabContent}
         activeSession={activeSession}

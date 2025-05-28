@@ -49,7 +49,7 @@ export default {
       },
       fontFamily: {
         sans: ["var(--font-sans)"],
-        maple: ["Maple Mono", "monospace"],
+        jetbrains: ["JetBrainsMono", "monospace"],
       },
     },
   },// eslint-disable-next-line @typescript-eslint/no-require-imports

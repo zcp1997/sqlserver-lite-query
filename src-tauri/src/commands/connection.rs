@@ -69,7 +69,7 @@ pub async fn test_connection(config: ConnectionConfig) -> ConnectionResponse {
             println!("找到已存在的相同配置连接，会话ID: {}", session_id);
             return ConnectionResponse {
                 success: true,
-                message: "使用已存在的连接".to_string(),
+                message: "连接成功，使用已存在的连接".to_string(),
                 session_id: Some(session_id.clone()),
             };
         }

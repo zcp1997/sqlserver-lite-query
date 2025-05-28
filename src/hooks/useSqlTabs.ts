@@ -21,6 +21,8 @@ interface UseSqlTabsReturn {
   saveCurrentWorkspace: () => void
   setSqlTabs: (tabs: EditorTab[]) => void
   setActiveSqlTabId: (tabId: string) => void
+  handleTabRename: (tabId: string, newTitle: string) => void
+  moveTab: (newTabs: EditorTab[]) => void
 }
 
 export function useSqlTabs(activeSession: Session | null): UseSqlTabsReturn {
@@ -339,6 +341,33 @@ export function useSqlTabs(activeSession: Session | null): UseSqlTabsReturn {
     }
   }, [activeSession?.id, activeSession, loadWorkspace, currentWorkspace, isExternalLoading])
 
+  // 新增：tab重命名
+  const handleTabRename = useCallback((tabId: string, newTitle: string) => {
+    setSqlTabs(prevTabs => {
+      const updatedTabs = prevTabs.map(tab =>
+        tab.id === tabId ? { ...tab, title: newTitle } : tab
+      )
+      // 同步到workspace
+      if (currentWorkspace) {
+        const manager = WorkspaceService.getWorkspaces()
+        WorkspaceService.updateWorkspace(manager, currentWorkspace.id, {
+          tabs: updatedTabs
+        })
+      }
+      return updatedTabs
+    })
+  }, [currentWorkspace])
+
+  // 拖拽排序tab
+  const moveTab = useCallback((newTabs: EditorTab[]) => {
+    setSqlTabs(newTabs)
+    if (currentWorkspace) {
+      const manager = WorkspaceService.getWorkspaces()
+      WorkspaceService.updateWorkspace(manager, currentWorkspace.id, {
+        tabs: newTabs
+      })
+    }
+  }, [currentWorkspace])
 
   return {
     sqlTabs,
@@ -367,6 +396,8 @@ export function useSqlTabs(activeSession: Session | null): UseSqlTabsReturn {
     },
     saveCurrentWorkspace,
     setSqlTabs,
-    setActiveSqlTabId
+    setActiveSqlTabId,
+    handleTabRename,
+    moveTab
   };
 }
