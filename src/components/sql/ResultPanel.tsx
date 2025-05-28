@@ -118,9 +118,9 @@ const ResultPanel: React.FC<ResultPanelProps> = React.memo(({ result, isLoading 
       ? themeQuartz.withPart(colorSchemeDark)
       : themeQuartz.withPart(colorSchemeLightWarm);
     return baseTheme.withParams({
-      fontFamily: 'JetBrainsMono, sans-serif, Maple Mono, monospace',
-      headerFontFamily: 'JetBrainsMono, sans-serif, Maple Mono, monospace',
-      cellFontFamily: 'JetBrainsMono, sans-serif, Maple Mono, monospace',
+      fontFamily: 'JetBrainsMono, sans-serif, monospace',
+      headerFontFamily: 'JetBrainsMono, sans-serif, monospace',
+      cellFontFamily: 'JetBrainsMono, sans-serif, monospace',
     });
   }, [resolvedTheme]);
 
