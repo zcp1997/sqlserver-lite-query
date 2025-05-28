@@ -37,7 +37,7 @@
 
 1.  **克隆仓库**:
     ```bash
-    git clone [https://github.com/你的用户名/sqlserver-lite-query.git](https://github.com/你的用户名/sqlserver-lite-query.git)
+    git clone [https://github.com/zcp1997/sqlserver-lite-query.git](https://github.com/zcp1997/sqlserver-lite-query.git)
     cd sqlserver-lite-query
     ```
 2.  **安装依赖**:
