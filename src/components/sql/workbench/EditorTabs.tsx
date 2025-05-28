@@ -10,6 +10,14 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
 
 export interface EditorTab {
   id: string
@@ -25,9 +33,9 @@ interface EditorTabsProps {
   onTabChange: (tabId: string) => void
   onTabClose: (tabId: string) => void
   onTabAdd: () => void
-  isExecuting?: boolean // 新增：是否正在执行查询
-  onTabRename?: (tabId: string, newTitle: string) => void // 新增
-  onTabSort?: (newTabs: EditorTab[]) => void // 新增
+  isExecuting?: boolean
+  onTabRename?: (tabId: string, newTitle: string) => void
+  onTabSort?: (newTabs: EditorTab[]) => void
 }
 
 export default function EditorTabs({
@@ -40,34 +48,41 @@ export default function EditorTabs({
   onTabRename,
   onTabSort
 }: EditorTabsProps) {
-  const [editingTabId, setEditingTabId] = useState<string | null>(null)
-  const [editingTitle, setEditingTitle] = useState('')
-  const inputWidthRef = useRef<HTMLInputElement>(null)
-  const spanMeasureRef = useRef<HTMLSpanElement>(null)
-  const [inputWidth, setInputWidth] = useState<number>(80)
-
-  // 动态测量input宽度
-  useLayoutEffect(() => {
-    if (editingTabId && spanMeasureRef.current) {
-      const width = spanMeasureRef.current.offsetWidth + 16 // 预留padding
-      setInputWidth(Math.min(Math.max(width, 80), 200))
-    }
-  }, [editingTitle, editingTabId])
+  const [renamingTab, setRenamingTab] = useState<{ id: string; title: string } | null>(null)
+  const [newTitle, setNewTitle] = useState('')
 
   const handleTabClick = (tabId: string) => {
-    if (isExecuting) return // 执行中时禁止切换
+    if (isExecuting) return
     onTabChange(tabId)
   }
 
   const handleTabClose = (e: React.MouseEvent, tabId: string) => {
     e.stopPropagation()
-    if (isExecuting) return // 执行中时禁止关闭
+    if (isExecuting) return
     onTabClose(tabId)
   }
 
   const handleAddTab = () => {
-    if (isExecuting) return // 执行中时禁止添加
+    if (isExecuting) return
     onTabAdd()
+  }
+
+  const startRenaming = (tab: EditorTab) => {
+    setRenamingTab({ id: tab.id, title: tab.title })
+    setNewTitle(tab.title)
+  }
+
+  const handleRename = () => {
+    if (renamingTab && newTitle.trim() && newTitle.trim() !== renamingTab.title && onTabRename) {
+      onTabRename(renamingTab.id, newTitle.trim())
+    }
+    setRenamingTab(null)
+    setNewTitle('')
+  }
+
+  const cancelRename = () => {
+    setRenamingTab(null)
+    setNewTitle('')
   }
 
   // dnd-kit 相关
@@ -101,162 +116,149 @@ export default function EditorTabs({
         }}
         {...attributes}
       >
-        {/* 将 listeners 传递给子组件，而不是直接应用到容器 */}
         {children(listeners || {})}
       </div>
     )
   }
 
   return (
-    <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-      <SortableContext items={tabs.map(t => t.id)} strategy={verticalListSortingStrategy}>
-        <div className="flex items-center border-b overflow-x-auto">
-          {tabs.map((tab) => (
-            <SortableTab key={tab.id} tab={tab}>
-              {(listeners: Record<string, Function>) => (
-                <div
-                  className={`flex items-center px-3 py-2 border-r transition-colors
-                    ${activeTabId === tab.id
-                      ? 'bg-primary border-b-2 border-b-primary text-primary-foreground font-medium'
-                      : 'bg-muted/30 hover:bg-muted/50'
-                    }
-                    ${isExecuting 
-                      ? 'cursor-not-allowed opacity-60' 
-                      : 'cursor-pointer'
-                    }`}
-                  onClick={() => handleTabClick(tab.id)}
-                >
-                  {/* 拖拽手柄区域 */}
-                  <div 
-                    className="mr-1 cursor-move opacity-60 hover:opacity-100 flex items-center"
-                    {...listeners}
+    <>
+      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+        <SortableContext items={tabs.map(t => t.id)} strategy={verticalListSortingStrategy}>
+          <div className="flex items-center border-b overflow-x-auto">
+            {tabs.map((tab) => (
+              <SortableTab key={tab.id} tab={tab}>
+                {(listeners: Record<string, Function>) => (
+                  <div
+                    className={`flex items-center px-3 py-2 border-r transition-colors
+                      ${activeTabId === tab.id
+                        ? 'bg-primary border-b-2 border-b-primary text-primary-foreground font-medium'
+                        : 'bg-muted/30 hover:bg-muted/50'
+                      }
+                      ${isExecuting 
+                        ? 'cursor-not-allowed opacity-60' 
+                        : 'cursor-pointer'
+                      }`}
+                    onClick={() => handleTabClick(tab.id)}
                   >
-                    <div className="w-1 h-4 flex flex-col justify-center gap-[1px]">
-                      <div className="w-full h-[2px] bg-current rounded-full"></div>
-                      <div className="w-full h-[2px] bg-current rounded-full"></div>
-                      <div className="w-full h-[2px] bg-current rounded-full"></div>
+                    {/* 拖拽手柄区域 */}
+                    <div 
+                      className="mr-1 cursor-move opacity-60 hover:opacity-100 flex items-center"
+                      {...listeners}
+                    >
+                      <div className="w-1 h-4 flex flex-col justify-center gap-[1px]">
+                        <div className="w-full h-[2px] bg-current rounded-full"></div>
+                        <div className="w-full h-[2px] bg-current rounded-full"></div>
+                        <div className="w-full h-[2px] bg-current rounded-full"></div>
+                      </div>
                     </div>
-                  </div>
-                  
-                  {editingTabId === tab.id ? (
-                    <>
-                      <input
-                        className="mr-2 truncate bg-transparent border border-primary rounded px-1 text-sm focus:outline-none"
-                        style={{ width: inputWidth, minWidth: 80, maxWidth: 200 }}
-                        value={editingTitle}
-                        autoFocus
-                        ref={inputWidthRef}
-                        onChange={e => setEditingTitle(e.target.value)}
-                        onBlur={() => {
-                          if (editingTitle.trim() && editingTitle !== tab.title && onTabRename) {
-                            onTabRename(tab.id, editingTitle.trim())
-                          }
-                          setEditingTabId(null)
-                        }}
-                        onKeyDown={e => {
-                          if (e.key === 'Enter') {
-                            if (editingTitle.trim() && editingTitle !== tab.title && onTabRename) {
-                              onTabRename(tab.id, editingTitle.trim())
-                            }
-                            setEditingTabId(null)
-                          } else if (e.key === 'Escape') {
-                            setEditingTabId(null)
-                          }
-                        }}
-                      />
-                      {/* 隐藏span用于测量宽度，样式需与input一致 */}
-                      <span
-                        ref={spanMeasureRef}
-                        className="invisible absolute whitespace-pre text-sm px-1"
-                        style={{
-                          fontFamily: 'inherit',
-                          fontWeight: 'inherit',
-                          letterSpacing: 'inherit',
-                          padding: 0,
-                          margin: 0,
-                          border: 0,
-                          whiteSpace: 'pre',
-                        }}
-                      >
-                        {editingTitle || ' '}
-                      </span>
-                    </>
-                  ) : (
+                    
                     <span
                       className="mr-2 max-w-[120px] truncate select-none"
                       title={tab.title}
                     >
                       {tab.title} {tab.isDirty && '*'}
                     </span>
-                  )}
-                  
-                  {/* Tab 菜单 */}
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-5 w-5 p-0 rounded-full mr-1 opacity-60 hover:opacity-100"
-                        disabled={isExecuting}
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        <MoreHorizontal className="h-3 w-3" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="w-48">
-                      <DropdownMenuItem
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          if (!isExecuting) {
-                            setEditingTabId(tab.id)
-                            setEditingTitle(tab.title)
-                          }
-                        }}
-                        disabled={isExecuting}
-                      >
-                        <Edit className="mr-2 h-4 w-4" />
-                        重命名
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          if (!isExecuting) {
-                            handleTabClose(e as any, tab.id)
-                          }
-                        }}
-                        disabled={isExecuting}
-                        className="text-red-600"
-                      >
-                        <Trash2 className="mr-2 h-4 w-4" />
-                        关闭标签页
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                  
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-5 w-5 p-0 rounded-full"
-                    disabled={isExecuting}
-                    onClick={(e) => handleTabClose(e, tab.id)}
-                  >
-                    <X className="h-3 w-3" />
-                  </Button>
-                </div>
-              )}
-            </SortableTab>
-          ))}
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-8 w-8 p-0"
-            disabled={isExecuting}
-            onClick={handleAddTab}
-          >
-            <Plus className="h-4 w-4" />
-          </Button>
-        </div>
-      </SortableContext>
-    </DndContext>
+                    
+                    {/* Tab 菜单 */}
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-5 w-5 p-0 rounded-full mr-1 opacity-60 hover:opacity-100"
+                          disabled={isExecuting}
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <MoreHorizontal className="h-3 w-3" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="w-48">
+                        <DropdownMenuItem
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            if (!isExecuting) {
+                              startRenaming(tab)
+                            }
+                          }}
+                          disabled={isExecuting}
+                        >
+                          <Edit className="mr-2 h-4 w-4" />
+                          重命名
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            if (!isExecuting) {
+                              handleTabClose(e as any, tab.id)
+                            }
+                          }}
+                          disabled={isExecuting}
+                          className="text-red-600"
+                        >
+                          <Trash2 className="mr-2 h-4 w-4" />
+                          关闭标签页
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                    
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-5 w-5 p-0 rounded-full"
+                      disabled={isExecuting}
+                      onClick={(e) => handleTabClose(e, tab.id)}
+                    >
+                      <X className="h-3 w-3" />
+                    </Button>
+                  </div>
+                )}
+              </SortableTab>
+            ))}
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-8 w-8 p-0"
+              disabled={isExecuting}
+              onClick={handleAddTab}
+            >
+              <Plus className="h-4 w-4" />
+            </Button>
+          </div>
+        </SortableContext>
+      </DndContext>
+
+      {/* 重命名对话框 */}
+      <Dialog open={!!renamingTab} onOpenChange={(open) => !open && cancelRename()}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>重命名标签页</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <Input
+              value={newTitle}
+              onChange={(e) => setNewTitle(e.target.value)}
+              placeholder="请输入新的标签页名称"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  handleRename()
+                } else if (e.key === 'Escape') {
+                  cancelRename()
+                }
+              }}
+              autoFocus
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={cancelRename}>
+              取消
+            </Button>
+            <Button onClick={handleRename} disabled={!newTitle.trim()}>
+              确认
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   )
 }
