@@ -1,36 +1,67 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# sqlserver-lite-query
 
-## Getting Started
+一款轻量级的 SQL Server 查询工具。
 
-First, run the development server:
+## 🚀 关于项目
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+`sqlserver-lite-query` 是一个使用 Tauri v2 构建的桌面应用程序，旨在提供一个轻量级且高效的界面来查询和操作 SQL Server 数据库。前端采用 Next.js、Tailwind CSS、Shadcn 和 AG Grid Community 构建现代化用户界面，并集成了 Monaco Editor 提供强大的 SQL 编辑体验。后端则利用 Tokio 和 Tiberius 库与 SQL Server 进行异步通信。
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## ✨ 主要特性
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+* **跨平台**: 基于 Tauri 构建，可运行于 Windows、macOS 和 Linux。
+* **现代化界面**: 使用 Next.js, Tailwind CSS 和 Shadcn 构建，美观易用。
+* **强大的 SQL 编辑器**: 集成 Monaco Editor，提供语法高亮、智能提示等功能。
+* **高效数据展示**: 使用 AG Grid Community 进行表格数据显示和操作。
+* **异步数据库操作**: 后端使用 Tokio 和 Tiberius，确保数据库操作的性能和响应速度。
+* **轻量级**: 专注于核心查询功能，保持应用的轻巧。
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## 🛠️ 技术栈
 
-## Learn More
+* **核心框架**:
+    * [Tauri](https://tauri.app/): 用于构建跨平台桌面应用的框架。
 
-To learn more about Next.js, take a look at the following resources:
+* **前端**:
+    * [Next.js](https://nextjs.org/): React 框架，用于构建用户界面。
+    * [Tailwind CSS](https://tailwindcss.com/): 工具类优先的 CSS 框架。
+    * [Shadcn/ui](https://ui.shadcn.com/): 可重用的 UI 组件。
+    * [AG Grid Community](https://www.ag-grid.com/community-edition/): 功能强大的数据表格组件。
+    * [Monaco Editor](https://microsoft.github.io/monaco-editor/): 强大的代码编辑器，用于 SQL 编辑。
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+* **后端**:
+    * [Tokio](https://tokio.rs/): Rust 的异步运行时。
+    * [Tiberius](https://github.com/prisma/tiberius): 用于 SQL Server 的纯 Rust TDS 实现库。
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## ⚙️ 安装与运行
 
-## Deploy on Vercel
+例如：
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+1.  **克隆仓库**:
+    ```bash
+    git clone [https://github.com/你的用户名/sqlserver-lite-query.git](https://github.com/你的用户名/sqlserver-lite-query.git)
+    cd sqlserver-lite-query
+    ```
+2.  **安装依赖**:
+    * 前端:
+        ```bash
+        pnpm install
+        # 或者 yarn install
+        ```
+    * Rust (Tauri): 确保你已经安装了 Rust 和 Tauri 的开发环境。查阅 [Tauri 官方文档](https://tauri.app/v1/guides/getting-started/prerequisites)。
+3.  **运行开发环境**:
+    ```bash
+    pnpm tauri dev
+    # 或者 yarn tauri dev
+    ```
+4.  **构建应用**:
+    ```bash
+    pnpm tauri build
+    # 或者 yarn tauri build
+    ```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## 📖 使用说明
+
+1.  启动应用程序。
+2.  配置 SQL Server 数据库连接信息（服务器地址、端口、用户名、密码、数据库名等）。
+3.  连接到数据库。
+4.  在 SQL 编辑器中输入并执行 SQL 查询。
+5.  在数据表格中查看查询结果。
