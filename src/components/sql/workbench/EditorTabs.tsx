@@ -1,9 +1,15 @@
-import { X, Plus } from 'lucide-react'
+import { X, Plus, MoreHorizontal, Edit, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useState, useRef, useLayoutEffect } from 'react'
 import { DndContext, closestCenter, PointerSensor, useSensor, useSensors } from '@dnd-kit/core'
 import { arrayMove, SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 
 export interface EditorTab {
   id: string
@@ -79,7 +85,10 @@ export default function EditorTabs({
   }
 
   // 单个tab的Sortable包装
-  function SortableTab({ tab, children }: { tab: EditorTab, children: React.ReactNode }) {
+  function SortableTab({ tab, children }: { 
+    tab: EditorTab, 
+    children: (listeners: Record<string, Function>) => React.ReactNode 
+  }) {
     const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: tab.id })
     return (
       <div
@@ -91,9 +100,9 @@ export default function EditorTabs({
           zIndex: isDragging ? 99 : undefined
         }}
         {...attributes}
-        {...listeners}
       >
-        {children}
+        {/* 将 listeners 传递给子组件，而不是直接应用到容器 */}
+        {children(listeners || {})}
       </div>
     )
   }
@@ -104,86 +113,137 @@ export default function EditorTabs({
         <div className="flex items-center border-b overflow-x-auto">
           {tabs.map((tab) => (
             <SortableTab key={tab.id} tab={tab}>
-              <div
-                className={`flex items-center px-3 py-2 border-r transition-colors
-                  ${activeTabId === tab.id
-                    ? 'bg-primary border-b-2 border-b-primary text-primary-foreground font-medium'
-                    : 'bg-muted/30 hover:bg-muted/50'
-                  }
-                  ${isExecuting 
-                    ? 'cursor-not-allowed opacity-60' 
-                    : 'cursor-pointer'
-                  }`}
-                onClick={() => handleTabClick(tab.id)}
-              >
-                {editingTabId === tab.id ? (
-                  <>
-                    <input
-                      className="mr-2 truncate bg-transparent border border-primary rounded px-1 text-sm focus:outline-none"
-                      style={{ width: inputWidth, minWidth: 80, maxWidth: 200 }}
-                      value={editingTitle}
-                      autoFocus
-                      ref={inputWidthRef}
-                      onChange={e => setEditingTitle(e.target.value)}
-                      onBlur={() => {
-                        if (editingTitle.trim() && editingTitle !== tab.title && onTabRename) {
-                          onTabRename(tab.id, editingTitle.trim())
-                        }
-                        setEditingTabId(null)
-                      }}
-                      onKeyDown={e => {
-                        if (e.key === 'Enter') {
+              {(listeners: Record<string, Function>) => (
+                <div
+                  className={`flex items-center px-3 py-2 border-r transition-colors
+                    ${activeTabId === tab.id
+                      ? 'bg-primary border-b-2 border-b-primary text-primary-foreground font-medium'
+                      : 'bg-muted/30 hover:bg-muted/50'
+                    }
+                    ${isExecuting 
+                      ? 'cursor-not-allowed opacity-60' 
+                      : 'cursor-pointer'
+                    }`}
+                  onClick={() => handleTabClick(tab.id)}
+                >
+                  {/* 拖拽手柄区域 */}
+                  <div 
+                    className="mr-1 cursor-move opacity-60 hover:opacity-100 flex items-center"
+                    {...listeners}
+                  >
+                    <div className="w-1 h-4 flex flex-col justify-center gap-[1px]">
+                      <div className="w-full h-[2px] bg-current rounded-full"></div>
+                      <div className="w-full h-[2px] bg-current rounded-full"></div>
+                      <div className="w-full h-[2px] bg-current rounded-full"></div>
+                    </div>
+                  </div>
+                  
+                  {editingTabId === tab.id ? (
+                    <>
+                      <input
+                        className="mr-2 truncate bg-transparent border border-primary rounded px-1 text-sm focus:outline-none"
+                        style={{ width: inputWidth, minWidth: 80, maxWidth: 200 }}
+                        value={editingTitle}
+                        autoFocus
+                        ref={inputWidthRef}
+                        onChange={e => setEditingTitle(e.target.value)}
+                        onBlur={() => {
                           if (editingTitle.trim() && editingTitle !== tab.title && onTabRename) {
                             onTabRename(tab.id, editingTitle.trim())
                           }
                           setEditingTabId(null)
-                        } else if (e.key === 'Escape') {
-                          setEditingTabId(null)
-                        }
-                      }}
-                    />
-                    {/* 隐藏span用于测量宽度，样式需与input一致 */}
+                        }}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter') {
+                            if (editingTitle.trim() && editingTitle !== tab.title && onTabRename) {
+                              onTabRename(tab.id, editingTitle.trim())
+                            }
+                            setEditingTabId(null)
+                          } else if (e.key === 'Escape') {
+                            setEditingTabId(null)
+                          }
+                        }}
+                      />
+                      {/* 隐藏span用于测量宽度，样式需与input一致 */}
+                      <span
+                        ref={spanMeasureRef}
+                        className="invisible absolute whitespace-pre text-sm px-1"
+                        style={{
+                          fontFamily: 'inherit',
+                          fontWeight: 'inherit',
+                          letterSpacing: 'inherit',
+                          padding: 0,
+                          margin: 0,
+                          border: 0,
+                          whiteSpace: 'pre',
+                        }}
+                      >
+                        {editingTitle || ' '}
+                      </span>
+                    </>
+                  ) : (
                     <span
-                      ref={spanMeasureRef}
-                      className="invisible absolute whitespace-pre text-sm px-1"
-                      style={{
-                        fontFamily: 'inherit',
-                        fontWeight: 'inherit',
-                        letterSpacing: 'inherit',
-                        padding: 0,
-                        margin: 0,
-                        border: 0,
-                        whiteSpace: 'pre',
-                      }}
+                      className="mr-2 max-w-[120px] truncate select-none"
+                      title={tab.title}
                     >
-                      {editingTitle || ' '}
+                      {tab.title} {tab.isDirty && '*'}
                     </span>
-                  </>
-                ) : (
-                  <span
-                    className="mr-2 max-w-[120px] truncate select-none"
-                    title={tab.title}
-                    onDoubleClick={e => {
-                      e.stopPropagation()
-                      if (!isExecuting) {
-                        setEditingTabId(tab.id)
-                        setEditingTitle(tab.title)
-                      }
-                    }}
+                  )}
+                  
+                  {/* Tab 菜单 */}
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-5 w-5 p-0 rounded-full mr-1 opacity-60 hover:opacity-100"
+                        disabled={isExecuting}
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <MoreHorizontal className="h-3 w-3" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-48">
+                      <DropdownMenuItem
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          if (!isExecuting) {
+                            setEditingTabId(tab.id)
+                            setEditingTitle(tab.title)
+                          }
+                        }}
+                        disabled={isExecuting}
+                      >
+                        <Edit className="mr-2 h-4 w-4" />
+                        重命名
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          if (!isExecuting) {
+                            handleTabClose(e as any, tab.id)
+                          }
+                        }}
+                        disabled={isExecuting}
+                        className="text-red-600"
+                      >
+                        <Trash2 className="mr-2 h-4 w-4" />
+                        关闭标签页
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                  
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-5 w-5 p-0 rounded-full"
+                    disabled={isExecuting}
+                    onClick={(e) => handleTabClose(e, tab.id)}
                   >
-                    {tab.title} {tab.isDirty && '*'}
-                  </span>
-                )}
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-5 w-5 p-0 rounded-full"
-                  disabled={isExecuting}
-                  onClick={(e) => handleTabClose(e, tab.id)}
-                >
-                  <X className="h-3 w-3" />
-                </Button>
-              </div>
+                    <X className="h-3 w-3" />
+                  </Button>
+                </div>
+              )}
             </SortableTab>
           ))}
           <Button

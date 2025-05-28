@@ -182,7 +182,7 @@ fn get_value_as_json(row: &Row, index: usize) -> Result<serde_json::Value, Strin
         return Ok(serde_json::Value::Null);
     }
     // 如果所有尝试都失败，记录信息并返回Null
-    println!("警告: 列索引 {} 的数据类型未能识别，返回 NULL", index);
+    //println!("警告: 列索引 {} 的数据类型未能识别，返回 NULL", index);
     Ok(serde_json::Value::Null)
 }
 
