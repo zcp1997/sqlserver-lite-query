@@ -419,7 +419,7 @@ pub async fn execute_sql_smart(
 ) -> Result<QueryResult, DatabaseError> {
     let parser = SqlParser::new();
     let start_time = std::time::Instant::now();
-    
+
     // 解析SQL语句
     let parsed_statements = match parser.parse_sql(sql) {
         Ok(statements) => statements,
@@ -438,7 +438,7 @@ pub async fn execute_sql_smart(
     // 逐个执行解析出的SQL语句
     for (index, parsed_stmt) in parsed_statements.iter().enumerate() {
         println!("执行第{}个语句: {} (类型: {:?})", index + 1, parsed_stmt.sql, parsed_stmt.statement_type);
-        
+
         let result = match parsed_stmt.statement_type {
             SqlStatementType::Query => {
                 execute_query(client, &parsed_stmt.sql).await
@@ -472,7 +472,7 @@ pub async fn execute_sql_smart(
                 let current_error = format!("语句 {} 执行失败: {}", index + 1, e);
                 error_message = Some(current_error.clone());
                 println!("{}", current_error);
-                
+
                 // 添加错误结果集
                 all_result_sets.push(ResultSet {
                     columns: Vec::new(),
@@ -481,7 +481,7 @@ pub async fn execute_sql_smart(
                     affected_rows: None,
                     error: Some(current_error),
                 });
-                
+
                 // 可以选择继续执行后续语句或者停止
                 // 这里选择继续执行
                 continue;
@@ -527,9 +527,9 @@ pub async fn search_stored_procedures(
                     1 as match_priority
                 FROM sys.procedures p
                 WHERE p.name LIKE @P1
-                
+
                 UNION
-                
+
                 -- 按 Schema 名称搜索
                 SELECT DISTINCT
                     p.object_id,
@@ -584,7 +584,7 @@ pub async fn search_tables(
 ) -> Result<Vec<TableInfo>, DatabaseError> {
     let mut results = Vec::new();
 
-    // 优化的表查询 - 搜索表名称和Schema名称
+    // 优化的表查询 - 搜索表名称和Schema名称，避免重复
     let table_query = r#"
         WITH TableMatches AS (
             -- 按表名称搜索
@@ -592,24 +592,17 @@ pub async fn search_tables(
                 t.object_id,
                 SCHEMA_NAME(t.schema_id) as schema_name,
                 t.name as table_name,
-                1 as match_priority
+                CASE
+                    WHEN t.name LIKE @P1 THEN 1
+                    ELSE 2
+                END as match_priority
             FROM sys.tables t
-            WHERE t.name LIKE @P1
-            
-            UNION
-            
-            -- 按Schema名称搜索
-            SELECT DISTINCT
-                t.object_id,
-                SCHEMA_NAME(t.schema_id) as schema_name,
-                t.name as table_name,
-                2 as match_priority
-            FROM sys.tables t
-            WHERE SCHEMA_NAME(t.schema_id) LIKE @P1
+            WHERE t.name LIKE @P1 OR SCHEMA_NAME(t.schema_id) LIKE @P1
         )
-        SELECT
+        SELECT DISTINCT
             tm.schema_name,
-            tm.table_name
+            tm.table_name,
+            tm.match_priority
         FROM TableMatches tm
         ORDER BY tm.match_priority, tm.schema_name, tm.table_name
     "#;
@@ -656,14 +649,14 @@ pub async fn search_table_columns(
         // 如果提供了schema名称，则使用完全限定表名
         Some(_schema) => {
             r#"
-            SELECT 
+            SELECT
                 c.name as column_name,
                 t.name as data_type,
                 CASE WHEN t.name IN ('varchar', 'nvarchar', 'char', 'nchar') AND c.max_length <> -1
-                    THEN t.name + '(' + 
-                         CASE WHEN t.name IN ('nvarchar', 'nchar') 
-                              THEN CAST(c.max_length/2 AS VARCHAR) 
-                              ELSE CAST(c.max_length AS VARCHAR) 
+                    THEN t.name + '(' +
+                         CASE WHEN t.name IN ('nvarchar', 'nchar')
+                              THEN CAST(c.max_length/2 AS VARCHAR)
+                              ELSE CAST(c.max_length AS VARCHAR)
                          END + ')'
                     WHEN t.name IN ('varchar', 'nvarchar') AND c.max_length = -1
                     THEN t.name + '(MAX)'
@@ -683,14 +676,14 @@ pub async fn search_table_columns(
         // 如果没有提供schema名称，则只按表名查询
         None => {
             r#"
-            SELECT 
+            SELECT
                 c.name as column_name,
                 t.name as data_type,
                 CASE WHEN t.name IN ('varchar', 'nvarchar', 'char', 'nchar') AND c.max_length <> -1
-                    THEN t.name + '(' + 
-                         CASE WHEN t.name IN ('nvarchar', 'nchar') 
-                              THEN CAST(c.max_length/2 AS VARCHAR) 
-                              ELSE CAST(c.max_length AS VARCHAR) 
+                    THEN t.name + '(' +
+                         CASE WHEN t.name IN ('nvarchar', 'nchar')
+                              THEN CAST(c.max_length/2 AS VARCHAR)
+                              ELSE CAST(c.max_length AS VARCHAR)
                          END + ')'
                     WHEN t.name IN ('varchar', 'nvarchar') AND c.max_length = -1
                     THEN t.name + '(MAX)'
@@ -901,9 +894,9 @@ pub async fn search_stored_views(
                 1 as match_priority
             FROM sys.views v
             WHERE v.name LIKE @P1
-            
+
             UNION
-            
+
             -- 按 Schema 名称搜索
             SELECT DISTINCT
                 v.object_id,
@@ -980,11 +973,11 @@ pub async fn search_stored_functions(
                 o.modify_date,
                 1 as match_priority
             FROM sys.objects o
-            WHERE o.type IN ('FN', 'IF', 'TF', 'FS', 'FT') 
+            WHERE o.type IN ('FN', 'IF', 'TF', 'FS', 'FT')
               AND o.name LIKE @P1
-            
+
             UNION
-            
+
             SELECT DISTINCT
                 o.object_id,
                 SCHEMA_NAME(o.schema_id) as schema_name,
@@ -994,7 +987,7 @@ pub async fn search_stored_functions(
                 o.modify_date,
                 2 as match_priority
             FROM sys.objects o
-            WHERE o.type IN ('FN', 'IF', 'TF', 'FS', 'FT') 
+            WHERE o.type IN ('FN', 'IF', 'TF', 'FS', 'FT')
               AND SCHEMA_NAME(o.schema_id) LIKE @P1
         )
         SELECT TOP 50

@@ -222,8 +222,7 @@ pub async fn execute_non_query(request: QueryRequest) -> Result<QueryResult, Str
 pub async fn execute_procedure_query(
     request: KeywordQueryRequest,
 ) -> Result<Vec<StoredProcedureInfo>, String> {
-    println!("执行存储过程查询，会话ID: {}", request.session_id);
-    println!("keyword: {}", request.keyword);
+    println!("执行存储过程查询，会话ID: {}, keyword: {}", request.session_id, request.keyword);
 
     let mut connections = ACTIVE_CONNECTIONS.lock().await;
 
@@ -255,8 +254,7 @@ pub async fn execute_procedure_query(
 pub async fn execute_view_query(
     request: KeywordQueryRequest,
 ) -> Result<Vec<StoredViewInfo>, String> {
-    println!("执行视图查询，会话ID: {}", request.session_id);
-    println!("keyword: {}", request.keyword);
+    println!("执行视图查询，会话ID: {}, keyword: {}", request.session_id, request.keyword);
 
     let mut connections = ACTIVE_CONNECTIONS.lock().await;
 
@@ -288,8 +286,7 @@ pub async fn execute_view_query(
 pub async fn execute_function_query(
     request: KeywordQueryRequest,
 ) -> Result<Vec<StoredFunctionInfo>, String> {
-    println!("执行函数查询，会话ID: {}", request.session_id);
-    println!("keyword: {}", request.keyword);
+    println!("执行函数查询，会话ID: {}, keyword: {}", request.session_id, request.keyword);
 
     let mut connections = ACTIVE_CONNECTIONS.lock().await;
 
@@ -318,8 +315,7 @@ pub async fn execute_function_query(
 
 #[tauri::command]
 pub async fn get_all_tables(request: TableQueryRequest) -> Result<Vec<TableInfo>, String> {
-    println!("执行表查询，会话ID: {}", request.session_id);
-    println!("keyword: {}", request.keyword);
+    println!("执行表查询，会话ID: {}, keyword: {}", request.session_id, request.keyword);
 
     let mut connections = ACTIVE_CONNECTIONS.lock().await;
 

@@ -3,12 +3,17 @@
 import { useEffect, useRef, useCallback, forwardRef, useImperativeHandle } from 'react'
 import Editor, { OnMount, Monaco as MonacoReact, loader } from '@monaco-editor/react'
 import { useTheme } from 'next-themes'
-import * as monaco from 'monaco-editor';
-import { search_column_details, search_table_names } from '@/lib/api'
+import * as monaco from 'monaco-editor'
 import { useSession } from '@/components/session/SessionContext'
-import { format } from 'sql-formatter';
+import { format } from 'sql-formatter'
+import {
+  parseTablesAndAliases,
+  analyzeSqlContext,
+  generateDynamicSuggestions,
+  CreateCompletionItemFunction
+} from '@/lib/sqlparse'
 
-loader.config({ monaco });
+loader.config({ monaco })
 
 interface SqlEditorProps {
   value: string
@@ -35,7 +40,7 @@ const baseSqlKeywordsArray = [
   'FUNCTION', 'TRIGGER', 'DATABASE', 'SCHEMA', 'CONSTRAINT', 'PRIMARY KEY',
   'FOREIGN KEY', 'REFERENCES', 'DEFAULT', 'NOT NULL', 'UNIQUE', 'CHECK',
   'SSF', 'ST100'
-];
+]
 
 const SqlEditor = forwardRef<SqlEditorRef, SqlEditorProps>(({
   value,
@@ -50,16 +55,19 @@ const SqlEditor = forwardRef<SqlEditorRef, SqlEditorProps>(({
   const { activeSession } = useSession()
 
   // Helper to create completion items consistently
-  const createCompletionItem = (
-    monacoInstance: MonacoReact,
+  const createCompletionItem: CreateCompletionItemFunction = (
     label: string,
     kind: monaco.languages.CompletionItemKind,
     insertText: string,
     range: monaco.IRange,
     detail?: string,
     documentation?: string,
-    isSnippet: boolean = false
+    isSnippet: boolean = false,
+    priority: 'high' | 'medium' | 'low' = 'medium'
   ): monaco.languages.CompletionItem => {
+    // 设置排序优先级：数字越小越靠前
+    const sortText = priority === 'high' ? '1' : priority === 'medium' ? '2' : '3'
+    
     const item: monaco.languages.CompletionItem = {
       label,
       kind,
@@ -67,343 +75,215 @@ const SqlEditor = forwardRef<SqlEditorRef, SqlEditorProps>(({
       range,
       detail,
       documentation,
-    };
-    if (isSnippet) {
-      item.insertTextRules = monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet;
+      sortText,
     }
-    return item;
-  };
+    if (isSnippet) {
+      item.insertTextRules = monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet
+    }
+    return item
+  }
 
   const handleEditorDidMount: OnMount = (editor, monacoInstance) => {
     editorRef.current = editor
     monacoRef.current = monacoInstance
 
-    // 新增：监听选择变化事件
+    // 监听选择变化事件
     editor.onDidChangeCursorSelection((e) => {
-      const selection = editor.getSelection();
+      const selection = editor.getSelection()
       if (selection && !selection.isEmpty()) {
-        const selectedText = editor.getModel()?.getValueInRange(selection) || '';
-        onSelectionChange?.(selectedText); // 新增：通知父组件
+        const selectedText = editor.getModel()?.getValueInRange(selection) || ''
+        onSelectionChange?.(selectedText)
       } else {
-        onSelectionChange?.(''); // 新增：通知父组件
+        onSelectionChange?.('')
       }
-    });
+    })
 
+    // 注册初始的 completion provider
+    registerCompletionProvider(monacoInstance)
+  }
+
+  // 提取 completion provider 注册逻辑到独立函数
+  const registerCompletionProvider = (monacoInstance: MonacoReact) => {
     // Dispose previous provider if one exists
     if (completionProviderRef.current) {
-      completionProviderRef.current.dispose();
+      completionProviderRef.current.dispose()
     }
 
     completionProviderRef.current = monacoInstance.languages.registerCompletionItemProvider('sql', {
-      triggerCharacters: [' ', '.', '('],
+      triggerCharacters: [' ', '.', '(', ','],
       provideCompletionItems: async (model, position) => {
-        const word = model.getWordUntilPosition(position);
+        // 获取当前最新的 activeSession
+        const currentSessionId = activeSession?.id || ""
+        
+        console.log('Completion provider using session ID:', currentSessionId)
+        
+        const word = model.getWordUntilPosition(position)
         const range = {
           startLineNumber: position.lineNumber,
           endLineNumber: position.lineNumber,
           startColumn: word.startColumn,
           endColumn: word.endColumn,
-        };
+        }
 
         const textBeforeCursor = model.getValueInRange({
           startLineNumber: 1,
           startColumn: 1,
           endLineNumber: position.lineNumber,
           endColumn: position.column,
-        }).toUpperCase();
+        }).toUpperCase()
 
-        const lastSignificantToken = (textBeforeCursor.match(/([A-Z_]+)\s*$/) || [])[1] || '';
-        const secondLastSignificantToken = (textBeforeCursor.match(/([A-Z_]+)\s+([A-Z_]+)\s*$/) || [])[1] || '';
+        // 获取整个文档的文本用于解析表名
+        const fullText = model.getValue().toUpperCase()
 
-        let dynamicSuggestions: monaco.languages.CompletionItem[] = [];
+        console.log('SQL Editor Completion Context:', {
+          sessionId: currentSessionId,
+          textBeforeCursor: textBeforeCursor.slice(-50),
+          fullText: fullText.slice(0, 100),
+          wordAtCursor: word.word,
+          position: { line: position.lineNumber, column: position.column }
+        })
 
-        // --- 1. Dynamic Table Suggestions ---
-        const tableKeywords = ['FROM', 'JOIN', 'UPDATE'];
-        if (tableKeywords.includes(lastSignificantToken) ||
-          (tableKeywords.includes(secondLastSignificantToken) && word.word === "")) {
-          try {
-            const tables = await search_table_names(activeSession?.id || "", "")
-            tables.forEach(table => {
-              const label = table.schema ? `[${table.schema}].[${table.name}]` : `[${table.name}]`;
-              dynamicSuggestions.push(createCompletionItem(
-                monacoInstance,
-                label,
-                monacoInstance.languages.CompletionItemKind.Module,
-                label + ' ',
-                range,
-                `Table: ${label}`,
-                table.schema ? `Schema: ${table.schema}` : 'Table'
-              ));
-            });
-          } catch (error) {
-            console.error("Error fetching tables:", error);
-          }
-        }
+        // 使用 sqlparse 库进行分析
+        const tablesAndAliases = parseTablesAndAliases(fullText)
+        const sqlContext = analyzeSqlContext(textBeforeCursor)
+        
+        console.log('解析结果:', { tablesAndAliases, sqlContext })
 
-        // --- 2. Dynamic Column Suggestions ---
-        // a) After "table_name." or "alias."
-        const dotMatch = textBeforeCursor.match(/(\b[A-Z0-9_]+\b)\.\s*$/i);
-        if (dotMatch) {
-          const tableNameOrAlias = dotMatch[1];
-          try {
-            const columns = await search_column_details(activeSession?.id || "", tableNameOrAlias)
-            columns.forEach(col => {
-              dynamicSuggestions.push(createCompletionItem(
-                monacoInstance,
-                col.name,
-                monacoInstance.languages.CompletionItemKind.Field,
-                col.name,
-                range,
-                `Column (${tableNameOrAlias})`,
-                `Type: ${col.data_type}`
-              ));
-            });
-          } catch (error) {
-            console.error(`Error fetching columns for ${tableNameOrAlias}:`, error);
-          }
-        }
+        // 生成动态建议
+        const dynamicSuggestions = await generateDynamicSuggestions(
+          currentSessionId,
+          textBeforeCursor,
+          fullText,
+          sqlContext,
+          tablesAndAliases,
+          createCompletionItem,
+          range
+        )
 
-        // b) After SELECT (basic) or after a comma in SELECT list
-        const afterSelectRegex = /SELECT\s+(?:[\w.]+\s*,\s*)*$/i;
-        const isAfterSelect = lastSignificantToken === 'SELECT' || (secondLastSignificantToken === 'SELECT' && word.word === "") || textBeforeCursor.endsWith(',');
-
-        if (isAfterSelect && textBeforeCursor.includes("FROM")) {
-          const fromTableMatch = textBeforeCursor.match(/FROM\s+([A-Z0-9_.]+)\b/i);
-          if (fromTableMatch) {
-            const tableName = fromTableMatch[1].split('.').pop() || fromTableMatch[1];
-            try {
-              const columns = await search_column_details(activeSession?.id || "", tableName)
-              columns.forEach(col => {
-                dynamicSuggestions.push(createCompletionItem(
-                  monacoInstance,
-                  col.name,
-                  monacoInstance.languages.CompletionItemKind.Field,
-                  col.name,
-                  range,
-                  `Column (${tableName})`,
-                  `Type: ${col.data_type}`
-                ));
-              });
-            } catch (error) {
-              console.error(`Error fetching columns for SELECT (${tableName}):`, error);
-            }
-          }
-        }
-
-        if (isAfterSelect) {
-          dynamicSuggestions.push(createCompletionItem(
-            monacoInstance,
-            '*',
-            monacoInstance.languages.CompletionItemKind.Field,
-            '* ',
-            range,
-            'Select all columns'
-          ));
-        }
-
-        // c) After "UPDATE table_name SET " or "UPDATE table_name SET column = value, "
-        const updateSetMatch = textBeforeCursor.match(/UPDATE\s+(\b[A-Z0-9_.]+)\b\s+SET\s+(?:[\w.]+\s*=\s*[^,]+(?:,\s*)?)*(\w*)$/i);
-        if (updateSetMatch) {
-          const tableNameWithSchema = updateSetMatch[1];
-          const tableName = tableNameWithSchema.split('.').pop() || tableNameWithSchema;
-          const textAfterSet = textBeforeCursor.substring(textBeforeCursor.indexOf("SET") + 3).trim();
-
-          if (word.word === "" || textAfterSet.endsWith(',')) {
-            try {
-              const columns = await search_column_details(activeSession?.id || "", tableName)
-              columns.forEach(col => {
-                dynamicSuggestions.push(createCompletionItem(
-                  monacoInstance,
-                  col.name,
-                  monacoInstance.languages.CompletionItemKind.Field,
-                  col.name + ' = ',
-                  range,
-                  `Column (${tableName})`,
-                  `Type: ${col.data_type}`
-                ));
-              });
-            } catch (error) {
-              console.error(`Error fetching columns for UPDATE SET (${tableName}):`, error);
-            }
-          }
-        }
-
-        // d) After "INSERT INTO table_name ("
-        const insertColumnsMatch = textBeforeCursor.match(/INSERT\s+INTO\s+(\b[A-Z0-9_.]+)\b\s*\(\s*([^)]*)$/i);
-        if (insertColumnsMatch) {
-          const tableNameWithSchema = insertColumnsMatch[1];
-          const tableName = tableNameWithSchema.split('.').pop() || tableNameWithSchema;
-          const existingColsText = insertColumnsMatch[2];
-          if (!existingColsText.includes(')')) {
-            try {
-              const columns = await search_column_details(activeSession?.id || "", tableName)
-              columns.forEach(col => {
-                dynamicSuggestions.push(createCompletionItem(
-                  monacoInstance,
-                  col.name,
-                  monacoInstance.languages.CompletionItemKind.Field,
-                  col.name,
-                  range,
-                  `Column for ${tableName}`,
-                  `Type: ${col.data_type}`
-                ));
-              });
-            } catch (error) {
-              console.error(`Error fetching columns for INSERT context (${tableName}):`, error);
-            }
-          }
-        }
-
-        // --- 3. Static Keyword and Snippet Suggestions ---
+        // 生成静态关键字建议
         const staticSuggestions = baseSqlKeywordsArray.map(keyword => {
-          let currentKind = monaco.languages.CompletionItemKind.Keyword;
-          let currentInsertText = keyword + ' ';
-          let currentDetail = `SQL Keyword`;
-          let isSnippet = false;
+          let currentKind = monaco.languages.CompletionItemKind.Keyword
+          let currentInsertText = keyword + ' '
+          let currentDetail = `SQL Keyword`
+          let isSnippet = false
 
           if (['COUNT', 'SUM', 'AVG', 'MAX', 'MIN'].includes(keyword)) {
-            currentKind = monaco.languages.CompletionItemKind.Function;
-            currentInsertText = `${keyword}($1)$0`;
-            currentDetail = `Aggregate Function`;
-            isSnippet = true;
+            currentKind = monaco.languages.CompletionItemKind.Function
+            currentInsertText = `${keyword}($1)$0`
+            currentDetail = `Aggregate Function`
+            isSnippet = true
           } else if (keyword === 'CASE') {
-            currentInsertText = `CASE\n\tWHEN \${1:condition} THEN \${2:result}\n\tELSE \${3:else_result}\nEND$0`;
-            currentDetail = 'Conditional expression';
-            isSnippet = true;
+            currentInsertText = `CASE\n\tWHEN \${1:condition} THEN \${2:result}\n\tELSE \${3:else_result}\nEND$0`
+            currentDetail = 'Conditional expression'
+            isSnippet = true
           } else if (keyword === 'INSERT INTO') {
-            currentInsertText = `INSERT INTO \${1:table_name} (\${2:column1, column2}) VALUES (\${3:value1, value2});$0`;
-            currentDetail = 'Insert data snippet';
-            isSnippet = true;
+            currentInsertText = `INSERT INTO \${1:table_name} (\${2:column1, column2}) VALUES (\${3:value1, value2});$0`
+            currentDetail = 'Insert data snippet'
+            isSnippet = true
           } else if (keyword === 'UPDATE') {
-            currentInsertText = `UPDATE \${1:table_name} SET \${2:column1} = \${3:value1} WHERE \${4:condition};$0`;
-            currentDetail = 'Update data snippet';
-            isSnippet = true;
+            currentInsertText = `UPDATE \${1:table_name} SET \${2:column1} = \${3:value1} WHERE \${4:condition};$0`
+            currentDetail = 'Update data snippet'
+            isSnippet = true
           } else if (keyword === 'SSF') {
-            currentInsertText = `SELECT * FROM \${1:table_name}`;
-            currentDetail = 'Select all snippet';
-            isSnippet = true;
+            currentInsertText = `SELECT * FROM `
+            currentDetail = 'Select all snippet'
+            isSnippet = true
           } else if (keyword === 'ST100') {
-            currentInsertText = `SELECT TOP 100 * FROM \${1:table_name}`;
-            currentDetail = 'Select top 100 snippet';
-            isSnippet = true;
+            currentInsertText = `SELECT TOP 100 * FROM \${1:table_name}`
+            currentDetail = 'Select top 100 snippet'
+            isSnippet = true
           }
 
           if (isSnippet && currentInsertText.endsWith(' ')) {
-            currentInsertText = currentInsertText.slice(0, -1);
+            currentInsertText = currentInsertText.slice(0, -1)
           }
 
           return createCompletionItem(
-            monacoInstance,
             keyword,
             currentKind,
             currentInsertText,
             range,
             currentDetail,
             undefined,
-            isSnippet
-          );
-        });
-
-        // Suggest "SET" after "UPDATE table_name "
-        const updateTableMatch = textBeforeCursor.match(/UPDATE\s+(\b[A-Z0-9_.]+)\b\s*$/i);
-        if (updateTableMatch) {
-          dynamicSuggestions.push(createCompletionItem(
-            monacoInstance,
-            'SET',
-            monacoInstance.languages.CompletionItemKind.Keyword,
-            'SET ',
-            range,
-            'SQL SET keyword'
-          ));
-        }
-
-        // Suggest "(" or "VALUES" after "INSERT INTO table_name "
-        const insertTableMatch = textBeforeCursor.match(/INSERT\s+INTO\s+(\b[A-Z0-9_.]+)\b\s*$/i);
-        if (insertTableMatch) {
-          dynamicSuggestions.push(createCompletionItem(
-            monacoInstance,
-            '(',
-            monacoInstance.languages.CompletionItemKind.Text,
-            '(',
-            range,
-            'Specify columns'
-          ));
-          dynamicSuggestions.push(createCompletionItem(
-            monacoInstance,
-            'VALUES',
-            monacoInstance.languages.CompletionItemKind.Keyword,
-            'VALUES ',
-            range,
-            'Specify values'
-          ));
-        }
+            isSnippet,
+            'low'
+          )
+        })
 
         return {
           suggestions: [...staticSuggestions, ...dynamicSuggestions]
-        };
+        }
       }
-    });
+    })
   }
+
+  // 当 activeSession 变化时重新注册 completion provider
+  useEffect(() => {
+    if (monacoRef.current && activeSession) {
+      console.log('ActiveSession changed, re-registering completion provider with session:', activeSession.id)
+      registerCompletionProvider(monacoRef.current)
+    }
+  }, [activeSession?.id])
 
   useEffect(() => {
     if (monacoRef.current) {
-      const monacoTheme = theme === 'dark' ? 'vs-dark' : 'vs';
-      monacoRef.current.editor.setTheme(monacoTheme);
+      const monacoTheme = theme === 'dark' ? 'vs-dark' : 'vs'
+      monacoRef.current.editor.setTheme(monacoTheme)
     }
-  }, [theme]);
+  }, [theme])
 
   // Cleanup completion provider on unmount
   useEffect(() => {
     return () => {
       if (completionProviderRef.current) {
-        completionProviderRef.current.dispose();
-        completionProviderRef.current = null;
+        completionProviderRef.current.dispose()
+        completionProviderRef.current = null
       }
-    };
-  }, []);
+    }
+  }, [])
 
   // 格式化SQL函数
   const handleFormatSQL = useCallback(() => {
     if (editorRef.current) {
-      console.log('Formatting SQL...');
-      
+      console.log('Formatting SQL...')
+
       // 获取当前SQL文本
-      const currentValue = editorRef.current.getValue();
-      
+      const currentValue = editorRef.current.getValue()
+
       try {
         // 分割多条SQL语句（保留原始分号）
-        const statements = currentValue.split(';');
-        
+        const statements = currentValue.split(';')
+
         // 对非空语句进行格式化
         const formattedStatements = statements.map((stmt: string, index: number) => {
-          const trimmed = stmt.trim();
-          if (!trimmed) return '';
-          
+          const trimmed = stmt.trim()
+          if (!trimmed) return ''
+
           // 格式化单条语句
-          const formatted = format(trimmed, { 
+          const formatted = format(trimmed, {
             language: 'tsql',
             indentStyle: 'standard',
             keywordCase: 'upper',
             linesBetweenQueries: 2,
             // 添加此配置以支持中文标识符
-            identifierCase: 'preserve' 
-          });
-          
+            identifierCase: 'preserve'
+          })
+
           // 如果不是最后一个非空语句，添加分号
-          return formatted + (index < statements.length - 1 && trimmed ? ';' : '');
-        });
-        
+          return formatted + (index < statements.length - 1 && trimmed ? ';' : '')
+        })
+
         // 用双换行符连接语句
-        const formattedValue = formattedStatements.join('\n\n').trim();
-        
+        const formattedValue = formattedStatements.join('\n\n').trim()
+
         // 更新编辑器内容
-        editorRef.current.setValue(formattedValue);
-        onChange(formattedValue);
+        editorRef.current.setValue(formattedValue)
+        onChange(formattedValue)
       } catch (error) {
-        console.error('SQL formatting error:', error);
+        console.error('SQL formatting error:', error)
       }
     }
-  }, [onChange]);
+  }, [onChange])
 
   // 暴露方法给父组件
   useImperativeHandle(ref, () => ({
@@ -412,6 +292,43 @@ const SqlEditor = forwardRef<SqlEditorRef, SqlEditorProps>(({
 
   return (
     <div className="h-full w-full overflow-hidden border rounded-md">
+      <style jsx global>{`
+        /* 自定义Monaco Editor建议窗口样式 */
+        .monaco-editor .suggest-widget {
+          width: 450px !important;
+          min-width: 400px !important;
+        }
+        
+        .monaco-editor .suggest-widget .monaco-list .monaco-list-row {
+          height: auto !important;
+          min-height: 22px !important;
+        }
+        
+        .monaco-editor .suggest-widget .monaco-list .monaco-list-row .contents {
+          padding: 4px 8px !important;
+        }
+        
+        .monaco-editor .suggest-widget .monaco-list .monaco-list-row .label {
+          max-width: none !important;
+          white-space: nowrap !important;
+        }
+        
+        .monaco-editor .suggest-widget .monaco-list .monaco-list-row .details {
+          max-width: none !important;
+          white-space: nowrap !important;
+          overflow: visible !important;
+        }
+        
+        .monaco-editor .suggest-widget .docs {
+          width: 300px !important;
+          min-width: 250px !important;
+        }
+        
+        /* 确保建议窗口不被截断 */
+        .monaco-editor .suggest-widget.docs-side {
+          width: 750px !important;
+        }
+      `}</style>
       <Editor
         height="100%"
         language="sql"
@@ -455,6 +372,48 @@ const SqlEditor = forwardRef<SqlEditorRef, SqlEditorProps>(({
             strings: true
           },
           suggestSelection: 'first',
+          // 建议窗口相关配置
+          suggest: {
+            showIcons: true,
+            showSnippets: true,
+            showWords: true,
+            showColors: true,
+            showFiles: true,
+            showReferences: true,
+            showFolders: true,
+            showTypeParameters: true,
+            showIssues: true,
+            showUsers: true,
+            showValues: true,
+            showMethods: true,
+            showFunctions: true,
+            showConstructors: true,
+            showFields: true,
+            showVariables: true,
+            showClasses: true,
+            showStructs: true,
+            showInterfaces: true,
+            showModules: true,
+            showProperties: true,
+            showEvents: true,
+            showOperators: true,
+            showUnits: true,
+            showKeywords: true,
+            showStatusBar: true,
+            // 扩展建议窗口配置
+            insertMode: 'insert',
+            filterGraceful: true,
+            snippetsPreventQuickSuggestions: false,
+            localityBonus: true,
+            shareSuggestSelections: false,
+            selectionMode: 'always'
+          },
+          // 提示框宽度相关
+          hover: {
+            enabled: true,
+            delay: 300,
+            sticky: true
+          }
         }}
       />
     </div>

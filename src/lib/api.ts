@@ -178,6 +178,7 @@ export async function search_table_names(session_id: string, keyword: string): P
 
 // 关键字查询列
 export async function search_column_details(session_id: string, table_name: string, schema_name?: string): Promise<ColumnInfo[]> {
+  console.log('search_column_details 调用参数:', session_id, table_name, schema_name)
   if (session_id === "") {
     console.log('session_id 为空')
     return []
@@ -191,7 +192,7 @@ export async function search_column_details(session_id: string, table_name: stri
     }
     const result = await invoke<ColumnInfo[]>('get_columns_for_table', { request })
 
-    console.log('get_all_tables 结果:', result)
+    console.log('get_columns_for_table 结果:', result)
 
     return result
   } catch (error) {
