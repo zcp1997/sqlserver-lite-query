@@ -1,8 +1,10 @@
 use crate::database::{
     create_connection, execute_non_query as db_execute_non_query,
-    execute_query as db_execute_query, execute_sql_smart, search_stored_functions, search_stored_procedures,
+    execute_query as db_execute_query, execute_sql_smart, search_procedure_suggestions,
+    search_procedure_suggestions_advanced, search_stored_functions, search_stored_procedures,
     search_stored_views, search_table_columns, search_tables, ColumnInfo, ConnectionConfig,
-    QueryResult, StoredFunctionInfo, StoredProcedureInfo, StoredViewInfo, TableInfo,
+    ProcedureSuggestionItem, QueryResult, StoredFunctionInfo, StoredProcedureInfo, StoredViewInfo,
+    TableInfo,
 };
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
@@ -184,45 +186,15 @@ pub async fn execute_non_query(request: QueryRequest) -> Result<QueryResult, Str
     }
 }
 
-// // 执行关键字查询表结构
-// #[tauri::command]
-// pub async fn execute_table_metadata_query(
-//     request: KeywordQueryRequest,
-// ) -> Result<Vec<StoredTableInfo>, String> {
-//     println!("执行存储过程查询，会话ID: {}", request.session_id);
-//     println!("keyword: {}", request.keyword);
-
-//     let mut connections = ACTIVE_CONNECTIONS.lock().await;
-
-//     if let Some(client) = connections.get_mut(&request.session_id) {
-//         println!("找到会话，开始执行执行存储过程查询");
-//         match search_stored_tables(client, &request.keyword).await {
-//             Ok(result) => {
-//                 println!("执行存储过程查询成功");
-//                 Ok(result)
-//             }
-//             Err(err) => {
-//                 let error_msg = format!("执行错误: {}", err);
-//                 println!("{}", error_msg);
-//                 Err(error_msg)
-//             }
-//         }
-//     } else {
-//         let error_msg = format!(
-//             "会话不存在或已过期，请重新连接，会话ID: {}",
-//             request.session_id
-//         );
-//         println!("{}", error_msg);
-//         Err(error_msg)
-//     }
-// }
-
 // 执行关键字查询存储过程
 #[tauri::command]
 pub async fn execute_procedure_query(
     request: KeywordQueryRequest,
 ) -> Result<Vec<StoredProcedureInfo>, String> {
-    println!("执行存储过程查询，会话ID: {}, keyword: {}", request.session_id, request.keyword);
+    println!(
+        "执行存储过程查询，会话ID: {}, keyword: {}",
+        request.session_id, request.keyword
+    );
 
     let mut connections = ACTIVE_CONNECTIONS.lock().await;
 
@@ -254,7 +226,10 @@ pub async fn execute_procedure_query(
 pub async fn execute_view_query(
     request: KeywordQueryRequest,
 ) -> Result<Vec<StoredViewInfo>, String> {
-    println!("执行视图查询，会话ID: {}, keyword: {}", request.session_id, request.keyword);
+    println!(
+        "执行视图查询，会话ID: {}, keyword: {}",
+        request.session_id, request.keyword
+    );
 
     let mut connections = ACTIVE_CONNECTIONS.lock().await;
 
@@ -286,7 +261,10 @@ pub async fn execute_view_query(
 pub async fn execute_function_query(
     request: KeywordQueryRequest,
 ) -> Result<Vec<StoredFunctionInfo>, String> {
-    println!("执行函数查询，会话ID: {}, keyword: {}", request.session_id, request.keyword);
+    println!(
+        "执行函数查询，会话ID: {}, keyword: {}",
+        request.session_id, request.keyword
+    );
 
     let mut connections = ACTIVE_CONNECTIONS.lock().await;
 
@@ -315,7 +293,10 @@ pub async fn execute_function_query(
 
 #[tauri::command]
 pub async fn get_all_tables(request: TableQueryRequest) -> Result<Vec<TableInfo>, String> {
-    println!("执行表查询，会话ID: {}, keyword: {}", request.session_id, request.keyword);
+    println!(
+        "执行表查询，会话ID: {}, keyword: {}",
+        request.session_id, request.keyword
+    );
 
     let mut connections = ACTIVE_CONNECTIONS.lock().await;
 
@@ -394,6 +375,41 @@ pub async fn execute_single_query(request: QueryRequest) -> Result<QueryResult, 
             }
             Err(err) => {
                 let error_msg = format!("{}", err);
+                println!("{}", error_msg);
+                Err(error_msg)
+            }
+        }
+    } else {
+        let error_msg = format!(
+            "会话不存在或已过期，请重新连接，会话ID: {}",
+            request.session_id
+        );
+        println!("{}", error_msg);
+        Err(error_msg)
+    }
+}
+
+// 新增：执行存储过程建议查询（用于自动完成）
+#[tauri::command]
+pub async fn execute_procedure_suggestions_query(
+    request: KeywordQueryRequest,
+) -> Result<Vec<ProcedureSuggestionItem>, String> {
+    println!(
+        "执行存储过程建议查询，会话ID: {}, keyword: {}",
+        request.session_id, request.keyword
+    );
+
+    let mut connections = ACTIVE_CONNECTIONS.lock().await;
+
+    if let Some(client) = connections.get_mut(&request.session_id) {
+        println!("找到会话，开始执行存储过程建议查询");
+        match search_procedure_suggestions_advanced(client, &request.keyword).await {
+            Ok(result) => {
+                println!("执行存储过程建议查询成功，返回 {} 条建议", result.len());
+                Ok(result)
+            }
+            Err(err) => {
+                let error_msg = format!("执行错误: {}", err);
                 println!("{}", error_msg);
                 Err(error_msg)
             }

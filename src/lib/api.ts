@@ -10,7 +10,8 @@ import {
   ColumnInfo,
   TableInfo,
   DatabaseObjectInfo,
-  DatabaseObjectType
+  DatabaseObjectType,
+  ProcedureSuggestionItem
 } from '@/types/database'
 
 import { useToast } from '@/hooks/use-toast'
@@ -147,6 +148,25 @@ export async function search_dbobject_info(session_id: string, keyword: string, 
     }
   } catch (error) {
     console.error('执行失败:', error)
+    return []
+  }
+}
+
+// 关键字查询存储过程的sql建议
+export async function search_procedure_suggestionitems(session_id: string, keyword: string): Promise<ProcedureSuggestionItem[]> {
+  if (session_id.trim() === "") {
+    return []
+  }
+  try {
+    const request: DBObjectInfoRequest = {
+      session_id,
+      keyword
+    }
+    const result = await invoke<ProcedureSuggestionItem[]>('execute_procedure_suggestions_query', { request })
+    console.log('search_procedure_suggestionitems 结果:', result)
+    return result
+  } catch (error) {
+    console.error('搜索存储过程建议失败:', error)
     return []
   }
 }

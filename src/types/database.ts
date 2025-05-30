@@ -117,3 +117,21 @@ export interface DatabaseObjectInfo {
   full_name: string,
   definition: string,
 }
+
+// 新增：存储过程参数信息
+export interface ParameterInfo {
+  name: string
+  data_type: string
+  max_length?: number
+  is_output: boolean
+  has_default: boolean
+}
+
+// 新增：存储过程建议项（用于自动完成）
+export interface ProcedureSuggestionItem {
+  name: string
+  schema_name: string
+  full_name: string
+  parameters: ParameterInfo[]
+  execute_template: string // 执行模板脚本
+}

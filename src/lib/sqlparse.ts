@@ -1,5 +1,6 @@
 import * as monaco from 'monaco-editor'
-import { search_column_details, search_table_names } from '@/lib/api'
+import { debounce } from 'lodash'
+import { search_column_details, search_table_names, search_procedure_suggestionitems } from '@/lib/api'
 
 // 缓存机制
 interface CacheEntry {
@@ -72,6 +73,77 @@ class SqlCache {
 }
 
 const sqlCache = new SqlCache()
+
+// 创建防抖的存储过程搜索缓存
+interface ProcedureSuggestionCache {
+  [key: string]: {
+    promise: Promise<any[]>
+    timestamp: number
+  }
+}
+
+const procedureSuggestionCache: ProcedureSuggestionCache = {}
+const PROCEDURE_CACHE_TTL = 60000 // 1分钟缓存
+
+// 防抖的存储过程搜索函数
+const debouncedProcedureSearch = debounce(
+  async (sessionId: string, keyword: string, cacheKey: string): Promise<any[]> => {
+    console.log(`防抖搜索存储过程: sessionId=${sessionId}, keyword="${keyword}"`)
+    try {
+      const result = await search_procedure_suggestionitems(sessionId, keyword)
+      
+      // 更新缓存
+      procedureSuggestionCache[cacheKey] = {
+        promise: Promise.resolve(result),
+        timestamp: Date.now()
+      }
+      
+      return result
+    } catch (error) {
+      console.error('防抖存储过程搜索失败:', error)
+      // 清除失败的缓存
+      delete procedureSuggestionCache[cacheKey]
+      return []
+    }
+  },
+  500 // 500ms 防抖延迟
+)
+
+// 获取存储过程建议的统一函数（带缓存和防抖）
+async function getProcedureSuggestions(sessionId: string, keyword: string): Promise<any[]> {
+  const cacheKey = `${sessionId}_${keyword}`
+  
+  // 检查缓存是否有效
+  const cached = procedureSuggestionCache[cacheKey]
+  if (cached && (Date.now() - cached.timestamp) < PROCEDURE_CACHE_TTL) {
+    console.log(`使用缓存的存储过程建议: ${keyword}`)
+    return await cached.promise
+  }
+  
+  // 清理过期缓存
+  Object.keys(procedureSuggestionCache).forEach(key => {
+    if (Date.now() - procedureSuggestionCache[key].timestamp > PROCEDURE_CACHE_TTL) {
+      delete procedureSuggestionCache[key]
+    }
+  })
+  
+  // 如果正在搜索中，返回现有的 Promise
+  if (cached) {
+    console.log(`等待进行中的存储过程搜索: ${keyword}`)
+    return await cached.promise
+  }
+  
+  // 创建新的搜索 Promise
+  const searchPromise = debouncedProcedureSearch(sessionId, keyword, cacheKey)
+  
+  // 立即缓存 Promise，防止重复搜索
+  procedureSuggestionCache[cacheKey] = {
+    promise: searchPromise || Promise.resolve([]),
+    timestamp: Date.now()
+  }
+  
+  return await (searchPromise || Promise.resolve([]))
+}
 
 // 表信息接口
 export interface ParsedTable {
@@ -284,6 +356,20 @@ export function analyzeSqlContext(textBeforeCursor: string): SqlContext {
       isDirectlyAfterSelect: true, // UNION后类似于SELECT后
       isAfterCommaInSelect: false,
       isAfterSelectOrComma: true,
+      isDotNotation: false,
+      dotTableOrAlias: undefined
+    }
+  }
+  
+  // 检测是否在EXEC后 - 特殊处理
+  const isAfterExec = /\bEXEC\s*$/i.test(textBeforeCursor)
+  if (isAfterExec) {
+    console.log('检测到在EXEC后，返回特殊上下文')
+    return {
+      isInSelectStatement: false,
+      isDirectlyAfterSelect: false,
+      isAfterCommaInSelect: false,
+      isAfterSelectOrComma: false,
       isDotNotation: false,
       dotTableOrAlias: undefined
     }
@@ -524,6 +610,58 @@ export async function generateDynamicSuggestions(
     }
     
     checkTimeout()
+    
+    // 新增：检测 EXEC 关键字后的存储过程建议
+    const execMatch = textBeforeCursor.match(/\bEXEC\s+(.*)$/i) || textBeforeCursor.match(/\bEXEC\s*$/i)
+    if (execMatch) {
+      console.log('检测到 EXEC 关键字，提供存储过程建议')
+      const keywordAfterExec = execMatch[1] ? execMatch[1].trim() : ''
+      
+      try {
+        const procedureSuggestions = await getProcedureSuggestions(sessionId, keywordAfterExec)
+        console.log(`获取到 ${procedureSuggestions.length} 个存储过程建议`)
+        
+        // 生成存储过程建议项
+        procedureSuggestions.forEach(proc => {
+          if (proc && proc.name && createCompletionItem && range) {
+            const insertText = proc.execute_template
+            
+            // 构建详细的documentation
+            let documentation = `存储过程: ${proc.full_name}\n`
+            if (proc.parameters.length > 0) {
+              documentation += `\n参数:\n`
+              proc.parameters.forEach((param: any) => {
+                const outputLabel = param.is_output ? ' (OUTPUT)' : ''
+                const defaultLabel = param.has_default ? ' (可选)' : ' (必需)'
+                documentation += `  ${param.name}: ${param.data_type}${outputLabel}${defaultLabel}\n`
+              })
+            } else {
+              documentation += `\n无参数`
+            }
+            
+            dynamicSuggestions.push(createCompletionItem(
+              proc.name,
+              monaco.languages.CompletionItemKind.Function,
+              insertText,
+              range,
+              `${proc.schema_name}`, // detail显示schema
+              documentation,
+              true, // 这是一个snippet
+              'high'
+            ))
+          }
+        })
+        
+        // 如果找到存储过程建议，直接返回，不继续其他建议
+        if (dynamicSuggestions.length > 0) {
+          console.log(`EXEC: 返回 ${dynamicSuggestions.length} 个存储过程建议`)
+          return dynamicSuggestions
+        }
+      } catch (error) {
+        console.error('获取存储过程建议失败:', error)
+        // 继续执行其他建议逻辑
+      }
+    }
     
     // 1. 表建议（在 FROM, JOIN, UPDATE 后）
     const lastToken = (textBeforeCursor.match(/([A-Z_]+)\s*$/) || [])[1] || ''
@@ -796,18 +934,32 @@ export const SqlCacheManager = {
   // 清除所有缓存
   clearAll(): void {
     sqlCache.clear()
-    console.log('已清除所有SQL缓存')
+    // 清除存储过程建议缓存
+    Object.keys(procedureSuggestionCache).forEach(key => {
+      delete procedureSuggestionCache[key]
+    })
+    console.log('已清除所有SQL缓存和存储过程建议缓存')
   },
   
   // 清除特定会话的缓存
   clearSession(sessionId: string): void {
     sqlCache.clearSession(sessionId)
+    // 清除特定会话的存储过程建议缓存
+    Object.keys(procedureSuggestionCache).forEach(key => {
+      if (key.startsWith(`${sessionId}_`)) {
+        delete procedureSuggestionCache[key]
+      }
+    })
     console.log(`已清除会话 ${sessionId} 的缓存`)
   },
   
   // 获取缓存统计信息
-  getStats(): { size: number, sessions: Set<string> } {
-    return sqlCache.getStats()
+  getStats(): { size: number, sessions: Set<string>, procedureCacheSize: number } {
+    const stats = sqlCache.getStats()
+    return {
+      ...stats,
+      procedureCacheSize: Object.keys(procedureSuggestionCache).length
+    }
   },
   
   // 手动设置列缓存
@@ -829,5 +981,19 @@ export const SqlCacheManager = {
     const cacheKey = `tables_${sessionId}`
     sqlCache.delete(cacheKey)
     console.log(`已删除会话 ${sessionId} 的表建议缓存`)
+  },
+  
+  // 新增：清除存储过程建议缓存
+  clearProcedureCache(): void {
+    Object.keys(procedureSuggestionCache).forEach(key => {
+      delete procedureSuggestionCache[key]
+    })
+    console.log('已清除所有存储过程建议缓存')
+  },
+  
+  // 新增：取消防抖，立即执行挂起的搜索
+  flushProcedureSearch(): void {
+    debouncedProcedureSearch.flush()
+    console.log('已强制执行挂起的存储过程搜索')
   }
 } 

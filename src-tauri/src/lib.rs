@@ -17,6 +17,7 @@ pub fn run() {
             commands::connection::execute_procedure_query,
             commands::connection::execute_view_query,
             commands::connection::execute_function_query,
+            commands::connection::execute_procedure_suggestions_query,
             commands::connection::get_all_tables,
             commands::connection::get_columns_for_table,
         ])

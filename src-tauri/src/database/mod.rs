@@ -78,7 +78,7 @@ pub struct StoredProcedureInfo {
     pub definition: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ParameterInfo {
     pub name: String,
     pub data_type: String,
@@ -142,6 +142,16 @@ pub struct StoredFunctionInfo {
     pub return_type: String,
     pub created_date: String,
     pub modified_date: String,
+}
+
+// 新增：用于自动完成的存储过程建议项
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ProcedureSuggestionItem {
+    pub name: String,
+    pub schema_name: String,
+    pub full_name: String,
+    pub parameters: Vec<ParameterInfo>,
+    pub execute_template: String, // 执行模板脚本
 }
 
 // 辅助函数：从Row中提取值并转换为JSON
@@ -733,148 +743,6 @@ pub async fn search_table_columns(
     Ok(results)
 }
 
-// Search tables with metadata and column information
-// pub async fn search_stored_tables(
-//     client: &mut Client<Compat<TcpStream>>,
-//     keyword: &str,
-// ) -> Result<Vec<StoredTableInfo>, DatabaseError> {
-//     let mut basic_results = Vec::new();
-
-//     let table_query = r#"
-//         ;WITH TableMatches AS (
-//             -- 按表名搜索
-//             SELECT DISTINCT
-//                 t.object_id,
-//                 SCHEMA_NAME(t.schema_id) as schema_name,
-//                 t.name as table_name,
-//                 t.type_desc as table_type,
-//                 t.create_date,
-//                 t.modify_date,
-//                 1 as match_priority
-//             FROM sys.tables t
-//             WHERE t.name LIKE @P1
-
-//             UNION
-
-//             -- 按 Schema 名称搜索
-//             SELECT DISTINCT
-//                 t.object_id,
-//                 SCHEMA_NAME(t.schema_id) as schema_name,
-//                 t.name as table_name,
-//                 t.type_desc as table_type,
-//                 t.create_date,
-//                 t.modify_date,
-//                 2 as match_priority
-//             FROM sys.tables t
-//             WHERE SCHEMA_NAME(t.schema_id) LIKE @P1
-//         )
-//         SELECT TOP 50
-//             tm.schema_name,
-//             tm.table_name,
-//             tm.table_type,
-//             tm.create_date,
-//             tm.modify_date,
-//             ISNULL(ddps.row_count, 0) as row_count,
-//             tm.match_priority
-//         FROM TableMatches tm
-//         LEFT JOIN sys.dm_db_partition_stats ddps ON tm.object_id = ddps.object_id AND ddps.index_id < 2
-//         ORDER BY tm.match_priority, tm.schema_name, tm.table_name
-//     "#;
-
-//     let search_pattern = format!("%{}%", keyword);
-//     let mut stream = client
-//         .query(table_query, &[&search_pattern])
-//         .await
-//         .map_err(|e| DatabaseError::QueryError(format!("查询表失败: {}", e)))?;
-
-//     while let Ok(Some(query_item)) = stream.try_next().await {
-//         if let Some(row) = query_item.into_row() {
-//             let schema_name: &str = row.get("schema_name").unwrap_or("");
-//             let table_name: &str = row.get("table_name").unwrap_or("");
-//             let table_type: &str = row.get("table_type").unwrap_or("");
-//             let row_count: i64 = row.get("row_count").unwrap_or(0);
-//             let create_date: chrono::NaiveDateTime = row.get("create_date").unwrap_or_default();
-//             let modify_date: chrono::NaiveDateTime = row.get("modify_date").unwrap_or_default();
-
-//             basic_results.push((
-//                 schema_name.to_string(),
-//                 table_name.to_string(),
-//                 table_type.to_string(),
-//                 row_count,
-//                 create_date.format("%Y-%m-%d %H:%M:%S").to_string(),
-//                 modify_date.format("%Y-%m-%d %H:%M:%S").to_string(),
-//             ));
-//         }
-//     }
-
-//     //drop(stream);
-
-//     let mut results = Vec::new();
-//     for (schema_name, table_name, table_type, row_count, created_date, modified_date) in
-//         basic_results
-//     {
-//         // let mut columns = Vec::new();
-
-//         // let column_query = r#"
-//         //     SELECT
-//         //         c.name as column_name,
-//         //         t.name as data_type,
-//         //         c.max_length,
-//         //         c.precision,
-//         //         c.scale,
-//         //         c.is_nullable,
-//         //         c.is_identity,
-//         //         CASE WHEN pk.column_name IS NOT NULL THEN 1 ELSE 0 END as is_primary_key
-//         //     FROM sys.columns c
-//         //     INNER JOIN sys.types t ON c.user_type_id = t.user_type_id
-//         //     LEFT JOIN (
-//         //         SELECT ku.column_name
-//         //         FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc
-//         //         INNER JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE ku ON tc.constraint_name = ku.constraint_name
-//         //         WHERE tc.constraint_type = 'PRIMARY KEY'
-//         //         AND tc.table_schema = @P1
-//         //         AND tc.table_name = @P2
-//         //     ) pk ON c.name = pk.column_name
-//         //     WHERE c.object_id = OBJECT_ID(@P1 + '.' + @P2)
-//         //     ORDER BY c.column_id
-//         // "#;
-
-//         // let mut stream = client
-//         //     .query(column_query, &[&schema_name, &table_name])
-//         //     .await
-//         //     .map_err(|e| DatabaseError::QueryError(format!("查询列信息失败: {}", e)))?;
-
-//         // while let Ok(Some(query_item)) = stream.try_next().await {
-//         //     if let Some(row) = query_item.into_row() {
-//         //         let column_info = StoredColumnInfo {
-//         //             name: row.get::<&str, _>("column_name").unwrap_or("").to_string(),
-//         //             data_type: row.get::<&str, _>("data_type").unwrap_or("").to_string(),
-//         //             max_length: row.get("max_length").unwrap_or(0),
-//         //             precision: row.get("precision").unwrap_or(0),
-//         //             scale: row.get("scale").unwrap_or(0),
-//         //             is_nullable: row.get("is_nullable").unwrap_or(false),
-//         //             is_identity: row.get("is_identity").unwrap_or(false),
-//         //             is_primary_key: row.get::<i32, _>("is_primary_key").unwrap_or(0) == 1,
-//         //         };
-//         //         columns.push(column_info);
-//         //     }
-//         // }
-
-//         let table_info = StoredTableInfo {
-//             name: table_name.clone(),
-//             schema_name: schema_name.clone(),
-//             full_name: format!("[{}].[{}]", schema_name, table_name),
-//             table_type,
-//             row_count,
-//             created_date,
-//             modified_date
-//         };
-//         results.push(table_info);
-//     }
-
-//     Ok(results)
-// }
-
 // Search views with definition and metadata
 pub async fn search_stored_views(
     client: &mut Client<Compat<TcpStream>>,
@@ -1061,4 +929,397 @@ pub async fn search_stored_functions(
     }
 
     Ok(results)
+}
+
+#[allow(dead_code)]
+// 新增：搜索存储过程建议项（用于自动完成）
+pub async fn search_procedure_suggestions(
+    client: &mut Client<Compat<TcpStream>>,
+    keyword: &str,
+) -> Result<Vec<ProcedureSuggestionItem>, DatabaseError> {
+    let mut results = Vec::new();
+
+    // 使用一条SQL语句同时查询存储过程和参数信息
+    let combined_query = r#"
+        ;WITH ProcedureMatches AS (
+            -- 按存储过程名称搜索
+            SELECT DISTINCT
+                p.object_id,
+                SCHEMA_NAME(p.schema_id) as schema_name,
+                p.name as procedure_name,
+                1 as match_priority
+            FROM sys.procedures p
+            WHERE p.name LIKE @P1
+
+            UNION
+
+            -- 按 Schema 名称搜索
+            SELECT DISTINCT
+                p.object_id,
+                SCHEMA_NAME(p.schema_id) as schema_name,
+                p.name as procedure_name,
+                2 as match_priority
+            FROM sys.procedures p
+            WHERE SCHEMA_NAME(p.schema_id) LIKE @P1
+        ),
+        TopProcedures AS (
+            SELECT TOP 30
+                pm.object_id,
+                pm.schema_name,
+                pm.procedure_name,
+                pm.match_priority
+            FROM ProcedureMatches pm
+            ORDER BY pm.match_priority, pm.schema_name, pm.procedure_name
+        )
+        -- 主查询：存储过程信息
+        SELECT 
+            tp.object_id,
+            tp.schema_name,
+            tp.procedure_name,
+            tp.match_priority,
+            NULL as parameter_name,
+            NULL as data_type,
+            NULL as max_length,
+            NULL as is_output,
+            NULL as has_default_value,
+            1 as result_type -- 1表示存储过程信息
+        FROM TopProcedures tp
+
+        UNION ALL
+
+        -- 参数信息
+        SELECT 
+            tp.object_id,
+            tp.schema_name,
+            tp.procedure_name,
+            tp.match_priority,
+            param.name as parameter_name,
+            TYPE_NAME(param.user_type_id) as data_type,
+            param.max_length,
+            param.is_output,
+            param.has_default_value,
+            2 as result_type -- 2表示参数信息
+        FROM TopProcedures tp
+        INNER JOIN sys.parameters param ON tp.object_id = param.object_id
+        WHERE param.name IS NOT NULL AND param.name != ''
+
+        ORDER BY object_id, result_type, 
+                 CASE WHEN result_type = 2 THEN param.parameter_id ELSE 0 END;
+    "#;
+
+    let search_pattern = format!("{}%", keyword);
+
+    // 执行合并查询
+    let mut stream = client
+        .query(combined_query, &[&search_pattern])
+        .await
+        .map_err(|e| DatabaseError::QueryError(format!("查询存储过程失败: {}", e)))?;
+
+    // 用于组织数据的临时结构
+    let mut procedures_map: std::collections::HashMap<i32, (String, String)> = std::collections::HashMap::new();
+    let mut parameters_map: std::collections::HashMap<i32, Vec<ParameterInfo>> = std::collections::HashMap::new();
+
+    // 处理查询结果
+    while let Ok(Some(query_item)) = stream.try_next().await {
+        if let Some(row) = query_item.into_row() {
+            let object_id: i32 = row.get("object_id").unwrap_or(0);
+            let schema_name: &str = row.get("schema_name").unwrap_or("");
+            let procedure_name: &str = row.get("procedure_name").unwrap_or("");
+            let result_type: i32 = row.get("result_type").unwrap_or(1);
+
+            if result_type == 1 {
+                // 存储过程基本信息
+                procedures_map.insert(object_id, (schema_name.to_string(), procedure_name.to_string()));
+            } else if result_type == 2 {
+                // 参数信息
+                let param_name: &str = row.get("parameter_name").unwrap_or("");
+                let data_type: &str = row.get("data_type").unwrap_or("");
+                let max_length: Option<i16> = row.get("max_length");
+                let is_output: bool = row.get("is_output").unwrap_or(false);
+                let has_default: bool = row.get("has_default_value").unwrap_or(false);
+
+                if !param_name.is_empty() {
+                    let param_info = ParameterInfo {
+                        name: param_name.to_string(),
+                        data_type: data_type.to_string(),
+                        max_length: max_length.filter(|&len| len > 0),
+                        is_output,
+                        has_default,
+                    };
+
+                    parameters_map.entry(object_id)
+                        .or_insert_with(Vec::new)
+                        .push(param_info);
+                }
+            }
+        }
+    }
+
+    // 组装最终结果
+    for (object_id, (schema_name, procedure_name)) in procedures_map {
+        let parameters = parameters_map.get(&object_id).cloned().unwrap_or_default();
+        
+        // 生成执行模板
+        let execute_template = generate_execute_template(&schema_name, &procedure_name, &parameters);
+
+        let suggestion_item = ProcedureSuggestionItem {
+            name: procedure_name.clone(),
+            schema_name: schema_name.clone(),
+            full_name: format!("[{}].[{}]", schema_name, procedure_name),
+            parameters,
+            execute_template,
+        };
+
+        results.push(suggestion_item);
+    }
+
+    // 按照原来的排序逻辑排序结果
+    results.sort_by(|a, b| {
+        a.schema_name.cmp(&b.schema_name)
+            .then_with(|| a.name.cmp(&b.name))
+    });
+
+    Ok(results)
+}
+
+// 新增：搜索存储过程建议项（高级版本）- 使用 simple_query 支持临时表和多结果集
+pub async fn search_procedure_suggestions_advanced(
+    client: &mut Client<Compat<TcpStream>>,
+    keyword: &str,
+) -> Result<Vec<ProcedureSuggestionItem>, DatabaseError> {
+    let mut results = Vec::new();
+
+    // 使用临时表和多结果集的高级SQL查询
+    let advanced_query = format!(r#"
+        -- 创建临时表存储匹配的存储过程
+        DROP TABLE IF EXISTS #ProcedureMatches;
+        CREATE TABLE #ProcedureMatches (
+            object_id INT PRIMARY KEY, -- 添加主键以提高性能并确保唯一性
+            schema_name NVARCHAR(128),
+            procedure_name NVARCHAR(128),
+            match_priority INT
+        );
+
+        -- 插入匹配的存储过程（按名称搜索）
+        -- 移除了 DISTINCT，因为 object_id 已经是唯一的
+        INSERT INTO #ProcedureMatches (object_id, schema_name, procedure_name, match_priority)
+        SELECT TOP 20
+            p.object_id,
+            SCHEMA_NAME(p.schema_id) as schema_name,
+            p.name as procedure_name,
+            1 as match_priority
+        FROM sys.procedures p
+        WHERE p.name LIKE N'{}%'
+        ORDER BY p.name;
+
+        -- 插入匹配的存储过程（按Schema搜索，排除重复）
+        -- 优化了 Schema 搜索，并使用 NOT EXISTS
+        INSERT INTO #ProcedureMatches (object_id, schema_name, procedure_name, match_priority)
+        SELECT TOP 10
+            p.object_id,
+            s.name as schema_name, --直接从 sys.schemas 获取
+            p.name as procedure_name,
+            2 as match_priority
+        FROM sys.procedures p
+        INNER JOIN sys.schemas s ON p.schema_id = s.schema_id -- JOIN sys.schemas
+        WHERE s.name LIKE N'{}%'
+            AND NOT EXISTS (SELECT 1 FROM #ProcedureMatches pm WHERE pm.object_id = p.object_id) -- 使用 NOT EXISTS
+        ORDER BY s.name, p.name;
+
+        -- 结果集1：存储过程基本信息
+        SELECT 
+            pm.object_id,
+            pm.schema_name,
+            pm.procedure_name,
+            pm.match_priority,
+            COUNT(param.parameter_id) as parameter_count -- COUNT(column_name) 忽略 NULLs，对于 LEFT JOIN 行为正确
+        FROM #ProcedureMatches pm
+        LEFT JOIN sys.parameters param ON pm.object_id = param.object_id
+            AND param.name IS NOT NULL AND param.name != '' -- 确保只统计有效命名的参数
+        GROUP BY pm.object_id, pm.schema_name, pm.procedure_name, pm.match_priority
+        ORDER BY pm.match_priority, pm.schema_name, pm.procedure_name;
+
+        -- 结果集2：参数详细信息
+        SELECT 
+            pm.object_id,
+            param.name as parameter_name,
+            TYPE_NAME(param.user_type_id) as data_type,
+            param.max_length,
+            param.precision,
+            param.scale,
+            param.is_output,
+            param.has_default_value,
+            param.parameter_id -- 保持原始 parameter_id 用于排序或识别
+        FROM #ProcedureMatches pm
+        INNER JOIN sys.parameters param ON pm.object_id = param.object_id
+        WHERE param.name IS NOT NULL AND param.name != '' -- 确保只选择有效命名的参数
+        ORDER BY pm.object_id, param.parameter_id; -- 按 object_id 后按参数原始顺序排序
+
+        -- 清理临时表
+        DROP TABLE #ProcedureMatches;
+    "#, keyword, keyword);
+
+    // 使用 simple_query 执行多结果集查询
+    match client.simple_query(&advanced_query).await {
+        Ok(query_result) => {
+            match query_result.into_results().await {
+                Ok(result_sets) => {
+                    if result_sets.len() >= 2 {
+                        // 处理第一个结果集：存储过程基本信息
+                        let mut procedures_info: std::collections::HashMap<i32, (String, String, i32)> = 
+                            std::collections::HashMap::new();
+                        
+                        for row in &result_sets[0] {
+                            let object_id: i32 = row.get("object_id").unwrap_or(0);
+                            let schema_name: String = row.get::<&str, _>("schema_name").unwrap_or("").to_string();
+                            let procedure_name: String = row.get::<&str, _>("procedure_name").unwrap_or("").to_string();
+                            let parameter_count: i32 = row.get("parameter_count").unwrap_or(0);
+                            
+                            procedures_info.insert(object_id, (schema_name, procedure_name, parameter_count));
+                        }
+
+                        // 处理第二个结果集：参数详细信息
+                        let mut parameters_map: std::collections::HashMap<i32, Vec<ParameterInfo>> = 
+                            std::collections::HashMap::new();
+                        
+                        for row in &result_sets[1] {
+                            let object_id: i32 = row.get("object_id").unwrap_or(0);
+                            let param_name: String = row.get::<&str, _>("parameter_name").unwrap_or("").to_string();
+                            let data_type: String = row.get::<&str, _>("data_type").unwrap_or("").to_string();
+                            let max_length: i16 = row.get("max_length").unwrap_or(0);
+                            let precision: u8 = row.get("precision").unwrap_or(0);
+                            let scale: u8 = row.get("scale").unwrap_or(0);
+                            let is_output: bool = row.get("is_output").unwrap_or(false);
+                            let has_default: bool = row.get("has_default_value").unwrap_or(false);
+
+                            if !param_name.is_empty() {
+                                // 格式化数据类型显示
+                                let formatted_data_type = match data_type.to_lowercase().as_str() {
+                                    "varchar" | "nvarchar" | "char" | "nchar" => {
+                                        if max_length > 0 && max_length != -1 {
+                                            format!("{}({})", data_type, max_length)
+                                        } else if max_length == -1 {
+                                            format!("{}(MAX)", data_type)
+                                        } else {
+                                            data_type.clone()
+                                        }
+                                    }
+                                    "decimal" | "numeric" => {
+                                        if precision > 0 {
+                                            if scale > 0 {
+                                                format!("{}({},{})", data_type, precision, scale)
+                                            } else {
+                                                format!("{}({})", data_type, precision)
+                                            }
+                                        } else {
+                                            data_type.clone()
+                                        }
+                                    }
+                                    _ => data_type.clone(),
+                                };
+
+                                let param_info = ParameterInfo {
+                                    name: param_name,
+                                    data_type: formatted_data_type,
+                                    max_length: if max_length > 0 { Some(max_length) } else { None },
+                                    is_output,
+                                    has_default,
+                                };
+
+                                parameters_map.entry(object_id)
+                                    .or_insert_with(Vec::new)
+                                    .push(param_info);
+                            }
+                        }
+
+                        // 组装最终结果
+                        for (object_id, (schema_name, procedure_name, _parameter_count)) in procedures_info {
+                            let parameters = parameters_map.get(&object_id).cloned().unwrap_or_default();
+                            
+                            // 生成执行模板
+                            let execute_template = generate_execute_template(&schema_name, &procedure_name, &parameters);
+
+                            let suggestion_item = ProcedureSuggestionItem {
+                                name: procedure_name.clone(),
+                                schema_name: schema_name.clone(),
+                                full_name: format!("[{}].[{}]", schema_name, procedure_name),
+                                parameters,
+                                execute_template,
+                            };
+
+                            results.push(suggestion_item);
+                        }
+                    }
+                }
+                Err(e) => {
+                    return Err(DatabaseError::QueryError(format!("处理多结果集失败: {}", e)));
+                }
+            }
+        }
+        Err(e) => {
+            return Err(DatabaseError::QueryError(format!("执行高级查询失败: {}", e)));
+        }
+    }
+
+    // 按照优先级和名称排序
+    results.sort_by(|a, b| {
+        a.schema_name.cmp(&b.schema_name)
+            .then_with(|| a.name.cmp(&b.name))
+    });
+
+    Ok(results)
+}
+
+// 生成存储过程执行模板
+fn generate_execute_template(
+    schema_name: &str,
+    procedure_name: &str,
+    parameters: &[ParameterInfo],
+) -> String {
+    let mut template = String::new();
+    
+    if parameters.is_empty() {
+        // 无参数的存储过程
+        template.push_str(&format!("[{}].[{}]", schema_name, procedure_name));
+    } else {
+        // 有参数的存储过程
+        template.push_str(&format!(" [{}].[{}]\n", schema_name, procedure_name));
+        
+        for (index, param) in parameters.iter().enumerate() {
+            let param_line = if param.is_output {
+                // 输出参数
+                if param.has_default {
+                    format!("    {} = NULL OUTPUT", param.name)
+                } else {
+                    format!("    {} = @{} OUTPUT", param.name, param.name.trim_start_matches('@'))
+                }
+            } else {
+                // 输入参数
+                if param.has_default {
+                    format!("    {} = NULL", param.name)
+                } else {
+                    // 根据数据类型提供默认值示例
+                    let default_value = match param.data_type.to_lowercase().as_str() {
+                        "int" | "bigint" | "smallint" | "tinyint" => "0",
+                        "decimal" | "numeric" | "float" | "real" | "money" | "smallmoney" => "0.0",
+                        "bit" => "0",
+                        "varchar" | "nvarchar" | "char" | "nchar" | "text" | "ntext" => "''",
+                        "datetime" | "datetime2" | "smalldatetime" | "date" | "time" => "GETDATE()",
+                        "uniqueidentifier" => "NEWID()",
+                        _ => "NULL",
+                    };
+                    format!("    {} = {}", param.name, default_value)
+                }
+            };
+            
+            // 添加逗号（除了最后一个参数）
+            if index < parameters.len() - 1 {
+                template.push_str(&format!("{},\n", param_line));
+            } else {
+                template.push_str(&param_line);
+            }
+        }
+    }
+    
+    template
 }
