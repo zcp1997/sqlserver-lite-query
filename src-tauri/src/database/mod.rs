@@ -356,7 +356,7 @@ pub async fn execute_query(
             }
         }
         Err(e) => {
-            return Err(DatabaseError::QueryError(format!("查询执行失败: {}", e)));
+            return Err(DatabaseError::QueryError(format!("{}", e)));
         }
     }
 

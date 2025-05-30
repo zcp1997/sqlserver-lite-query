@@ -393,7 +393,7 @@ pub async fn execute_single_query(request: QueryRequest) -> Result<QueryResult, 
                 Ok(result)
             }
             Err(err) => {
-                let error_msg = format!("单一查询执行错误: {}", err);
+                let error_msg = format!("{}", err);
                 println!("{}", error_msg);
                 Err(error_msg)
             }

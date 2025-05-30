@@ -181,26 +181,68 @@ export const SessionProvider = ({ children }: { children: ReactNode }) => {
         const lastUsedWorkspace = WorkspaceService.getLastUsedWorkspace(manager)
         let preferredActiveSession: Session | null = null
         
-        for (const conn of connections) {
-          const result = await testConnection(conn)
-          if (result.success && result.session_id) {
-            const session: Session = {
-              id: result.session_id,
-              connectionId: conn.id,
-              connectionName: conn.name,
-              server: conn.server,
-              database: conn.database,
-              isActive: false
+        // 创建带超时的 testConnection 函数
+        const testConnectionWithTimeout = (conn: ConnectionConfig): Promise<{ success: boolean; session_id?: string; message?: string }> => {
+          return Promise.race([
+            testConnection(conn),
+            new Promise<{ success: boolean; session_id?: string; message?: string }>((_, reject) => 
+              setTimeout(() => reject(new Error('Connection timeout after 3 seconds')), 3000)
+            )
+          ]).catch(error => ({
+            success: false,
+            message: error.message || 'Connection failed'
+          }))
+        }
+        
+        // 并行处理所有连接，每个连接最多等待3秒
+        const connectionPromises = connections.map(async (conn) => {
+          try {
+            const result = await testConnectionWithTimeout(conn)
+            return { conn, result }
+          } catch (error) {
+            return { 
+              conn, 
+              result: { 
+                success: false, 
+                message: error instanceof Error ? error.message : 'Unknown error'
+              }
             }
+          }
+        })
+        
+        // 等待所有连接尝试完成（无论成功还是失败）
+        const connectionResults = await Promise.allSettled(connectionPromises)
+        
+        // 处理结果，只保留成功的连接
+        for (const promiseResult of connectionResults) {
+          if (promiseResult.status === 'fulfilled') {
+            const { conn, result } = promiseResult.value
             
-            newSessions.push(session)
-            
-            // 如果这个连接对应最后使用的工作区，将其设为首选的活动会话
-            if (lastUsedWorkspace && 
-                lastUsedWorkspace.server === conn.server && 
-                lastUsedWorkspace.database === conn.database) {
-              preferredActiveSession = session
+            if (result.success && result.session_id) {
+              const session: Session = {
+                id: result.session_id,
+                connectionId: conn.id,
+                connectionName: conn.name,
+                server: conn.server,
+                database: conn.database,
+                isActive: false
+              }
+              
+              newSessions.push(session)
+              
+              // 如果这个连接对应最后使用的工作区，将其设为首选的活动会话
+              if (lastUsedWorkspace && 
+                  lastUsedWorkspace.server === conn.server && 
+                  lastUsedWorkspace.database === conn.database) {
+                preferredActiveSession = session
+              }
+            } else {
+              // 连接失败，输出日志但不阻塞其他连接
+              console.warn(`连接失败 [${conn.name}]: ${result.message}`)
             }
+          } else {
+            // Promise 被拒绝
+            console.warn('连接处理失败:', promiseResult.reason)
           }
         }
 
@@ -240,6 +282,16 @@ export const SessionProvider = ({ children }: { children: ReactNode }) => {
             })
           }
         }
+        
+        // 显示连接结果摘要
+        const successCount = newSessions.length
+        const totalCount = connections.length
+        if (successCount > 0) {
+          console.log(`成功建立 ${successCount}/${totalCount} 个数据库连接`)
+        } else if (totalCount > 0) {
+          console.warn('所有数据库连接都失败了')
+        }
+        
       } else if (existingSessions.length > 0) {
         // 如果没有新连接但有现有会话，尝试从工作区恢复
         const lastUsedWorkspace = WorkspaceService.getLastUsedWorkspace(manager)
