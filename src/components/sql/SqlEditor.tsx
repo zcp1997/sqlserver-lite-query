@@ -112,106 +112,151 @@ const SqlEditor = forwardRef<SqlEditorRef, SqlEditorProps>(({
     completionProviderRef.current = monacoInstance.languages.registerCompletionItemProvider('sql', {
       triggerCharacters: [' ', '.', '(', ','],
       provideCompletionItems: async (model, position) => {
-        // 获取当前最新的 activeSession
-        const currentSessionId = activeSession?.id || ""
-        
-        console.log('Completion provider using session ID:', currentSessionId)
-        
-        const word = model.getWordUntilPosition(position)
-        const range = {
-          startLineNumber: position.lineNumber,
-          endLineNumber: position.lineNumber,
-          startColumn: word.startColumn,
-          endColumn: word.endColumn,
-        }
-
-        const textBeforeCursor = model.getValueInRange({
-          startLineNumber: 1,
-          startColumn: 1,
-          endLineNumber: position.lineNumber,
-          endColumn: position.column,
-        }).toUpperCase()
-
-        // 获取整个文档的文本用于解析表名
-        const fullText = model.getValue().toUpperCase()
-
-        console.log('SQL Editor Completion Context:', {
-          sessionId: currentSessionId,
-          textBeforeCursor: textBeforeCursor.slice(-50),
-          fullText: fullText.slice(0, 100),
-          wordAtCursor: word.word,
-          position: { line: position.lineNumber, column: position.column }
-        })
-
-        // 使用 sqlparse 库进行分析
-        const tablesAndAliases = parseTablesAndAliases(fullText)
-        const sqlContext = analyzeSqlContext(textBeforeCursor)
-        
-        console.log('解析结果:', { tablesAndAliases, sqlContext })
-
-        // 生成动态建议
-        const dynamicSuggestions = await generateDynamicSuggestions(
-          currentSessionId,
-          textBeforeCursor,
-          fullText,
-          sqlContext,
-          tablesAndAliases,
-          createCompletionItem,
-          range
-        )
-
-        // 生成静态关键字建议
-        const staticSuggestions = baseSqlKeywordsArray.map(keyword => {
-          let currentKind = monaco.languages.CompletionItemKind.Keyword
-          let currentInsertText = keyword + ' '
-          let currentDetail = `SQL Keyword`
-          let isSnippet = false
-
-          if (['COUNT', 'SUM', 'AVG', 'MAX', 'MIN'].includes(keyword)) {
-            currentKind = monaco.languages.CompletionItemKind.Function
-            currentInsertText = `${keyword}($1)$0`
-            currentDetail = `Aggregate Function`
-            isSnippet = true
-          } else if (keyword === 'CASE') {
-            currentInsertText = `CASE\n\tWHEN \${1:condition} THEN \${2:result}\n\tELSE \${3:else_result}\nEND$0`
-            currentDetail = 'Conditional expression'
-            isSnippet = true
-          } else if (keyword === 'INSERT INTO') {
-            currentInsertText = `INSERT INTO \${1:table_name} (\${2:column1, column2}) VALUES (\${3:value1, value2});$0`
-            currentDetail = 'Insert data snippet'
-            isSnippet = true
-          } else if (keyword === 'UPDATE') {
-            currentInsertText = `UPDATE \${1:table_name} SET \${2:column1} = \${3:value1} WHERE \${4:condition};$0`
-            currentDetail = 'Update data snippet'
-            isSnippet = true
-          } else if (keyword === 'SSF') {
-            currentInsertText = `SELECT * FROM `
-            currentDetail = 'Select all snippet'
-            isSnippet = true
-          } else if (keyword === 'ST100') {
-            currentInsertText = `SELECT TOP 100 * FROM \${1:table_name}`
-            currentDetail = 'Select top 100 snippet'
-            isSnippet = true
+        try {
+          // 性能保护：超时控制
+          const startTime = Date.now()
+          const maxTime = 3000 // 3秒超时
+          
+          const checkTimeout = () => {
+            if (Date.now() - startTime > maxTime) {
+              throw new Error('Completion provider timeout')
+            }
+          }
+          
+          // 获取当前最新的 activeSession
+          const currentSessionId = activeSession?.id || ""
+          
+          console.log('Completion provider using session ID:', currentSessionId)
+          
+          checkTimeout()
+          
+          const word = model.getWordUntilPosition(position)
+          const range = {
+            startLineNumber: position.lineNumber,
+            endLineNumber: position.lineNumber,
+            startColumn: word.startColumn,
+            endColumn: word.endColumn,
           }
 
-          if (isSnippet && currentInsertText.endsWith(' ')) {
-            currentInsertText = currentInsertText.slice(0, -1)
-          }
+          const textBeforeCursor = model.getValueInRange({
+            startLineNumber: 1,
+            startColumn: 1,
+            endLineNumber: position.lineNumber,
+            endColumn: position.column,
+          }).toUpperCase()
 
-          return createCompletionItem(
-            keyword,
-            currentKind,
-            currentInsertText,
-            range,
-            currentDetail,
-            undefined,
-            isSnippet,
-            'low'
+          // 获取整个文档的文本用于解析表名
+          const fullText = model.getValue().toUpperCase()
+
+          console.log('SQL Editor Completion Context:', {
+            sessionId: currentSessionId,
+            textBeforeCursor: textBeforeCursor.slice(-50),
+            fullText: fullText.slice(0, 100),
+            wordAtCursor: word.word,
+            position: { line: position.lineNumber, column: position.column }
+          })
+
+          checkTimeout()
+
+          // 使用 sqlparse 库进行分析
+          const tablesAndAliases = parseTablesAndAliases(fullText)
+          const sqlContext = analyzeSqlContext(textBeforeCursor)
+          
+          console.log('解析结果:', { tablesAndAliases, sqlContext })
+
+          checkTimeout()
+
+          // 生成动态建议
+          const dynamicSuggestions = await generateDynamicSuggestions(
+            currentSessionId,
+            textBeforeCursor,
+            fullText,
+            sqlContext,
+            tablesAndAliases,
+            createCompletionItem,
+            range
           )
-        })
 
-        return {
-          suggestions: [...staticSuggestions, ...dynamicSuggestions]
+          checkTimeout()
+
+          // 生成静态关键字建议
+          const staticSuggestions = baseSqlKeywordsArray.map(keyword => {
+            let currentKind = monaco.languages.CompletionItemKind.Keyword
+            let currentInsertText = keyword + ' '
+            let currentDetail = `SQL Keyword`
+            let isSnippet = false
+
+            if (['COUNT', 'SUM', 'AVG', 'MAX', 'MIN'].includes(keyword)) {
+              currentKind = monaco.languages.CompletionItemKind.Function
+              currentInsertText = `${keyword}($1)$0`
+              currentDetail = `Aggregate Function`
+              isSnippet = true
+            } else if (keyword === 'CASE') {
+              currentInsertText = `CASE\n\tWHEN \${1:condition} THEN \${2:result}\n\tELSE \${3:else_result}\nEND$0`
+              currentDetail = 'Conditional expression'
+              isSnippet = true
+            } else if (keyword === 'INSERT INTO') {
+              currentInsertText = `INSERT INTO \${1:table_name} (\${2:column1, column2}) VALUES (\${3:value1, value2});$0`
+              currentDetail = 'Insert data snippet'
+              isSnippet = true
+            } else if (keyword === 'UPDATE') {
+              currentInsertText = `UPDATE \${1:table_name} SET \${2:column1} = \${3:value1} WHERE \${4:condition};$0`
+              currentDetail = 'Update data snippet'
+              isSnippet = true
+            } else if (keyword === 'SSF') {
+              currentInsertText = `SELECT * FROM `
+              currentDetail = 'Select all snippet'
+              isSnippet = true
+            } else if (keyword === 'ST100') {
+              currentInsertText = `SELECT TOP 100 * FROM \${1:table_name}`
+              currentDetail = 'Select top 100 snippet'
+              isSnippet = true
+            }
+
+            if (isSnippet && currentInsertText.endsWith(' ')) {
+              currentInsertText = currentInsertText.slice(0, -1)
+            }
+
+            return createCompletionItem(
+              keyword,
+              currentKind,
+              currentInsertText,
+              range,
+              currentDetail,
+              undefined,
+              isSnippet,
+              'low'
+            )
+          })
+
+          return {
+            suggestions: [...staticSuggestions, ...dynamicSuggestions]
+          }
+          
+        } catch (error) {
+          console.error('Completion provider error:', error)
+          // 发生错误时返回基本的SQL关键字建议，避免界面完全无响应
+          const basicSuggestions = ['SELECT', 'FROM', 'WHERE', 'JOIN', 'INSERT', 'UPDATE', 'DELETE'].map(keyword => 
+            createCompletionItem(
+              keyword,
+              monaco.languages.CompletionItemKind.Keyword,
+              keyword + ' ',
+              {
+                startLineNumber: position.lineNumber,
+                endLineNumber: position.lineNumber,
+                startColumn: position.column,
+                endColumn: position.column,
+              },
+              'SQL Keyword',
+              undefined,
+              false,
+              'medium'
+            )
+          )
+          
+          return {
+            suggestions: basicSuggestions
+          }
         }
       }
     })

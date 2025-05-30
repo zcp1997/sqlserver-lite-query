@@ -304,7 +304,7 @@ const ResultPanel: React.FC<ResultPanelProps> = React.memo(({ result, isLoading 
     suppressMenuHide: true,
     animateRows: false,
     suppressScrollOnNewData: true,
-    rowBuffer: 20,
+    rowBuffer: 10,
   }), []);
 
   const getProcessedRowData = useCallback((resultSet: ResultSet) => resultSet.rows || [], []);
@@ -475,6 +475,7 @@ const ResultPanel: React.FC<ResultPanelProps> = React.memo(({ result, isLoading 
                         rowHeight={35} headerHeight={40} quickFilterText={quickFilterText} cacheQuickFilter={true}
                         suppressColumnMoveAnimation={gridOptions.suppressColumnMoveAnimation}
                         rowBuffer={gridOptions.rowBuffer}
+                        suppressColumnVirtualisation={true}
                       />
                     </div>
                   </div>

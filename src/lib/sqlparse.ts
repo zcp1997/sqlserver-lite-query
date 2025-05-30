@@ -107,56 +107,78 @@ export function parseTablesAndAliases(sql: string): ParsedTable[] {
   const tables: ParsedTable[] = []
   const addedTables = new Set<string>() // 避免重复表
   
-  console.log('暴力解析所有SQL中的表:', sql)
+  console.log('暴力解析所有SQL中的表:', sql.length > 200 ? sql.substring(0, 200) + '...' : sql)
+  
+  // 性能保护：限制SQL长度
+  if (sql.length > 50000) {
+    console.warn(`SQL过长 (${sql.length} 字符)，限制为前50000字符`)
+    sql = sql.substring(0, 50000)
+  }
   
   // 直接在完整SQL中查找所有表，不分语句
   const upperSql = sql.toUpperCase()
   
-  // 匹配所有 FROM 子句中的表
-  const fromMatches = upperSql.matchAll(/FROM\s+(?:\[([^\]]+)\]\.\[([^\]]+)\]|([^\s\[.]+)\.([^\s\[.]+)|([^\s\[.]+))(?:\s+(?:AS\s+)?([A-Z0-9_]+))?/gi)
-  for (const match of fromMatches) {
-    const table = parseTableMatch(match)
-    if (table) {
-      const tableKey = `${table.schema || ''}.${table.name}`
-      if (!addedTables.has(tableKey)) {
-        addedTables.add(tableKey)
-        tables.push(table)
+  // SQL关键字列表，用于避免误识别
+  const sqlKeywords = new Set([
+    'SELECT', 'FROM', 'WHERE', 'JOIN', 'INNER', 'LEFT', 'RIGHT', 'FULL', 'CROSS',
+    'ON', 'AND', 'OR', 'NOT', 'IN', 'EXISTS', 'LIKE', 'BETWEEN', 'ORDER', 'BY',
+    'GROUP', 'HAVING', 'UNION', 'ALL', 'DISTINCT', 'TOP', 'CASE', 'WHEN', 'THEN',
+    'ELSE', 'END', 'INSERT', 'INTO', 'UPDATE', 'DELETE', 'CREATE', 'ALTER', 'DROP',
+    'VALUES', 'SET', 'AS', 'LIMIT', 'OFFSET', 'WITH', 'CTE'
+  ])
+  
+  try {
+    // 改进的正则表达式，更严格地匹配表名，避免包含SQL关键字
+    // 使用负向前瞻确保别名不是SQL关键字
+    const fromMatches = upperSql.matchAll(/FROM\s+(?:\[([^\]]+)\]\.\[([^\]]+)\]|([^\s\[.]+)\.([^\s\[.]+)|([^\s\[.]+))(?:\s+(?:AS\s+)?([A-Z0-9_]+))?(?=\s|$|;|,|\)|JOIN|WHERE|ORDER|GROUP|HAVING|UNION|LIMIT)/gi)
+    for (const match of fromMatches) {
+      const table = parseTableMatch(match, sqlKeywords)
+      if (table) {
+        const tableKey = `${table.schema || ''}.${table.name}`
+        if (!addedTables.has(tableKey)) {
+          addedTables.add(tableKey)
+          tables.push(table)
+        }
       }
     }
-  }
-  
-  // 匹配所有 JOIN 子句中的表
-  const joinMatches = upperSql.matchAll(/(?:INNER|LEFT|RIGHT|FULL|CROSS)?\s*JOIN\s+(?:\[([^\]]+)\]\.\[([^\]]+)\]|([^\s\[.]+)\.([^\s\[.]+)|([^\s\[.]+))(?:\s+(?:AS\s+)?([A-Z0-9_]+))?/gi)
-  for (const match of joinMatches) {
-    const table = parseTableMatch(match)
-    if (table) {
-      const tableKey = `${table.schema || ''}.${table.name}`
-      if (!addedTables.has(tableKey)) {
-        addedTables.add(tableKey)
-        tables.push(table)
+    
+    // 匹配所有 JOIN 子句中的表，添加更严格的边界检查
+    const joinMatches = upperSql.matchAll(/(?:INNER|LEFT|RIGHT|FULL|CROSS)?\s*JOIN\s+(?:\[([^\]]+)\]\.\[([^\]]+)\]|([^\s\[.]+)\.([^\s\[.]+)|([^\s\[.]+))(?:\s+(?:AS\s+)?([A-Z0-9_]+))?(?=\s|$|;|,|\)|ON|WHERE|ORDER|GROUP|HAVING|UNION|LIMIT)/gi)
+    for (const match of joinMatches) {
+      const table = parseTableMatch(match, sqlKeywords)
+      if (table) {
+        const tableKey = `${table.schema || ''}.${table.name}`
+        if (!addedTables.has(tableKey)) {
+          addedTables.add(tableKey)
+          tables.push(table)
+        }
       }
     }
-  }
-  
-  // 匹配所有 UPDATE 语句中的表
-  const updateMatches = upperSql.matchAll(/UPDATE\s+(?:\[([^\]]+)\]\.\[([^\]]+)\]|([^\s\[.]+)\.([^\s\[.]+)|([^\s\[.]+))(?:\s+(?:AS\s+)?([A-Z0-9_]+))?/gi)
-  for (const match of updateMatches) {
-    const table = parseTableMatch(match)
-    if (table) {
-      const tableKey = `${table.schema || ''}.${table.name}`
-      if (!addedTables.has(tableKey)) {
-        addedTables.add(tableKey)
-        tables.push(table)
+    
+    // 匹配所有 UPDATE 语句中的表，添加更严格的边界检查
+    const updateMatches = upperSql.matchAll(/UPDATE\s+(?:\[([^\]]+)\]\.\[([^\]]+)\]|([^\s\[.]+)\.([^\s\[.]+)|([^\s\[.]+))(?:\s+(?:AS\s+)?([A-Z0-9_]+))?(?=\s|$|;|,|\)|SET|WHERE|FROM)/gi)
+    for (const match of updateMatches) {
+      const table = parseTableMatch(match, sqlKeywords)
+      if (table) {
+        const tableKey = `${table.schema || ''}.${table.name}`
+        if (!addedTables.has(tableKey)) {
+          addedTables.add(tableKey)
+          tables.push(table)
+        }
       }
     }
+    
+  } catch (error) {
+    console.error('表解析过程中发生错误:', error)
+    // 继续执行，返回已解析的表
   }
   
-  console.log('解析到的所有表:', tables)
+  console.log('解析到的所有表:', tables.length > 10 ? `${tables.length}个表` : tables)
   return tables
 }
 
-// 解析单个表匹配结果
-function parseTableMatch(match: RegExpMatchArray): ParsedTable | null {
+// 解析单个表匹配结果 - 添加SQL关键字检查
+function parseTableMatch(match: RegExpMatchArray, sqlKeywords: Set<string>): ParsedTable | null {
   let schema: string | undefined
   let tableName: string
   let alias: string | undefined = match[6] // 别名总是在最后
@@ -176,6 +198,18 @@ function parseTableMatch(match: RegExpMatchArray): ParsedTable | null {
     return null // 跳过无效匹配
   }
   
+  // 检查表名是否为SQL关键字，如果是则跳过
+  if (sqlKeywords.has(tableName.toUpperCase())) {
+    console.log(`跳过SQL关键字: ${tableName}`)
+    return null
+  }
+  
+  // 检查别名是否为SQL关键字，如果是则清除别名
+  if (alias && sqlKeywords.has(alias.toUpperCase())) {
+    console.log(`清除SQL关键字别名: ${alias}`)
+    alias = undefined
+  }
+  
   console.log('Table match details:', {
     fullMatch: match[0],
     parsed: { schema, tableName, alias }
@@ -188,34 +222,97 @@ function parseTableMatch(match: RegExpMatchArray): ParsedTable | null {
   }
 }
 
+// 辅助函数：根据光标位置找到当前的SQL语句块
+function findCurrentSqlStatementBlock(fullText: string, cursorPosition: number): string {
+  if (!fullText) return "";
+
+  const normalizedFullText = fullText.replace(/\r\n/g, '\n');
+  // 使用正则表达式匹配一个或多个空行（仅包含空白字符的行也被视为空行）
+  // 分隔符是两个或多个换行符，中间可能只有空格/制表符
+  const separators = [];
+  const regex = /\n\s*\n/g; 
+  let match;
+  while ((match = regex.exec(normalizedFullText)) !== null) {
+    separators.push({ index: match.index, length: match[0].length });
+  }
+
+  let startOffset = 0;
+  for (const sep of separators) {
+    const endOffset = sep.index;
+    // 如果光标在这个块内 (从startOffset到块的末尾)
+    if (cursorPosition >= startOffset && cursorPosition <= endOffset) {
+      return normalizedFullText.substring(startOffset, endOffset);
+    }
+    // 如果光标恰好在分隔符内，通常认为它属于前一个块的末尾或下一个块的开头
+    // 为了简化，我们将其归于前一个块，或者可以根据具体编辑器行为调整
+    if (cursorPosition > endOffset && cursorPosition < (sep.index + sep.length)) {
+         return normalizedFullText.substring(startOffset, endOffset); // 光标在分隔符中，取前一个块
+    }
+    startOffset = sep.index + sep.length; // 下一个块的开始
+  }
+
+  // 如果光标在最后一个块中，或者没有分隔符（整个文本是一个块）
+  if (cursorPosition >= startOffset && cursorPosition <= normalizedFullText.length) {
+     return normalizedFullText.substring(startOffset);
+  }
+  
+  // 如果光标位置异常 (例如 > fullText.length)，或者文本为空但光标位置为0
+  // 返回整个文本作为最后的保障，尽管这可能意味着块定位逻辑需要审查特定边缘案例
+  console.warn("findCurrentSqlStatementBlock: Cursor position might be out of typical range or block logic needs review for this case. Falling back to full text for block.");
+  return normalizedFullText; 
+}
+
 // 分析SQL上下文 - 简化逻辑
 export function analyzeSqlContext(textBeforeCursor: string): SqlContext {
   console.log('分析SQL上下文, textBeforeCursor末尾50字符:', textBeforeCursor.slice(-50))
   
+  // 性能保护：限制分析的文本长度
+  if (textBeforeCursor.length > 10000) {
+    console.warn('文本过长，只分析最后10000字符')
+    textBeforeCursor = textBeforeCursor.slice(-10000)
+  }
+  
   // 简单检测是否在SELECT语句中
   const isInSelectStatement = textBeforeCursor.toUpperCase().includes('SELECT')
   
-  // 检测是否在 SELECT 后面（包含 TOP 语法支持）
+  // 检测是否在UNION后 - 特殊处理
+  const isAfterUnion = /\bUNION\s*(?:ALL\s*)?$/i.test(textBeforeCursor)
+  if (isAfterUnion) {
+    console.log('检测到在UNION后，返回特殊上下文')
+    return {
+      isInSelectStatement: true,
+      isDirectlyAfterSelect: true, // UNION后类似于SELECT后
+      isAfterCommaInSelect: false,
+      isAfterSelectOrComma: true,
+      isDotNotation: false,
+      dotTableOrAlias: undefined
+    }
+  }
+  
+  // 使用更安全的正则表达式，避免回溯爆炸
   const selectPatterns = [
     /SELECT\s*$/i,                           // SELECT 后直接
     /SELECT\s+\w*$/i,                        // SELECT 后有部分单词
-    /SELECT\s+(?:[^,]+,\s*)+$/i,             // SELECT 后有多个字段，最后以逗号结尾
-    /SELECT\s+(?:[^,]+,\s*)*\w*$/i,          // SELECT 后有字段列表，最后可能有部分单词
-    // SQL Server TOP 语法支持
     /SELECT\s+TOP\s+\d+\s*$/i,               // SELECT TOP 10 后直接
     /SELECT\s+TOP\s+\d+\s+\w*$/i,            // SELECT TOP 10 后有部分单词
-    /SELECT\s+TOP\s+\d+\s+(?:[^,]+,\s*)+$/i, // SELECT TOP 10 后有多个字段，最后以逗号结尾
-    /SELECT\s+TOP\s+\d+\s+(?:[^,]+,\s*)*\w*$/i, // SELECT TOP 10 后有字段列表，最后可能有部分单词
   ]
   
-  // 检测逗号后的情况
+  // 更安全的逗号检测，避免复杂的回溯
   const isAfterCommaInSelect = isInSelectStatement && (
     /,\s*$/i.test(textBeforeCursor) ||          // 以逗号结尾
-    /,\s+\w*$/i.test(textBeforeCursor) ||       // 逗号后有空格和可能的单词
-    /SELECT\s+[^,]*,\s*\w*$/i.test(textBeforeCursor) // SELECT后有字段，然后逗号
+    /,\s+\w*$/i.test(textBeforeCursor)          // 逗号后有空格和可能的单词
   )
   
-  const isDirectlyAfterSelect = selectPatterns.some(pattern => pattern.test(textBeforeCursor))
+  // 简化的SELECT后检测
+  const isDirectlyAfterSelect = selectPatterns.some(pattern => {
+    try {
+      return pattern.test(textBeforeCursor)
+    } catch (error) {
+      console.warn('正则表达式执行错误:', error)
+      return false
+    }
+  })
+  
   const isAfterSelectOrComma = isDirectlyAfterSelect || isAfterCommaInSelect
   
   // 检测点号后的情况
@@ -229,7 +326,8 @@ export function analyzeSqlContext(textBeforeCursor: string): SqlContext {
     isAfterCommaInSelect,
     isAfterSelectOrComma,
     isDotNotation,
-    dotTableOrAlias
+    dotTableOrAlias,
+    isAfterUnion
   })
   
   return {
@@ -394,85 +492,192 @@ export async function generateDynamicSuggestions(
 ): Promise<monaco.languages.CompletionItem[]> {
   const dynamicSuggestions: monaco.languages.CompletionItem[] = []
   
-  // 暴力解析所有表
-  const allTables = parseTablesAndAliases(fullText)
-  console.log('暴力解析到的所有表:', allTables)
-  
-  // 1. 表建议（在 FROM, JOIN, UPDATE 后）
-  const lastToken = (textBeforeCursor.match(/([A-Z_]+)\s*$/) || [])[1] || ''
-  const secondLastToken = (textBeforeCursor.match(/([A-Z_]+)\s+([A-Z_]+)\s*$/) || [])[1] || ''
-  const tableKeywords = ['FROM', 'JOIN', 'UPDATE']
-  
-  if (tableKeywords.includes(lastToken) || (tableKeywords.includes(secondLastToken))) {
-    const tableSuggestions = await getTableSuggestions(sessionId, createCompletionItem, range)
-    dynamicSuggestions.push(...tableSuggestions)
-    return dynamicSuggestions // 只返回表建议
+  // 性能保护：限制处理的文本长度，防止超大SQL文件导致性能问题
+  const maxTextLength = 50000 // 50KB 限制
+  if (fullText.length > maxTextLength) {
+    console.warn(`SQL文本过长 (${fullText.length} 字符)，限制为前 ${maxTextLength} 字符`)
+    fullText = fullText.substring(0, maxTextLength)
   }
   
-  // 2. 点号后的列建议 - 只显示该表的列
-  if (sqlContext.isDotNotation && sqlContext.dotTableOrAlias) {
-    console.log(`点号表示法检测，只加载表 ${sqlContext.dotTableOrAlias} 的列`)
-    
-    const matchedTable = allTables.find(t => 
-      t.alias === sqlContext.dotTableOrAlias || t.name === sqlContext.dotTableOrAlias
-    )
-    
-    if (matchedTable) {
-      console.log(`点号匹配到表:`, matchedTable)
-      const tableDisplayName = matchedTable.schema ? `[${matchedTable.schema}].[${matchedTable.name}]` : matchedTable.name
-      const columnSuggestions = await getColumnSuggestions(
-        sessionId,
-        matchedTable.name,
-        'dot notation',
-        matchedTable.schema,
-        createCompletionItem,
-        range,
-        tableDisplayName
-      )
-      return columnSuggestions
-    } else {
-      console.log(`点号未匹配到表，直接查询:`, sqlContext.dotTableOrAlias)
-      const columnSuggestions = await getColumnSuggestions(
-        sessionId,
-        sqlContext.dotTableOrAlias,
-        'dot notation (direct)',
-        undefined,
-        createCompletionItem,
-        range,
-        sqlContext.dotTableOrAlias
-      )
-      return columnSuggestions
+  // 性能保护：添加超时控制
+  const startTime = Date.now()
+  const maxProcessingTime = 5000 // 5秒超时
+  
+  const checkTimeout = () => {
+    if (Date.now() - startTime > maxProcessingTime) {
+      console.warn('动态建议生成超时，停止处理')
+      throw new Error('Completion generation timeout')
     }
   }
   
-  // 3. SELECT 子句中的列建议 - 暴力加载所有表的列
-  if (sqlContext.isAfterSelectOrComma) {
-    console.log('SELECT子句检测，暴力加载所有表的列建议')
+  try {
+    // 暴力解析所有表
+    checkTimeout()
+    const allTables = parseTablesAndAliases(fullText)
+    console.log('暴力解析到的所有表:', allTables)
     
-    // 添加 * 选项
-    dynamicSuggestions.push(createCompletionItem(
-      '*',
-      monaco.languages.CompletionItemKind.Field,
-      '* ',
-      range,
-      'Select all columns',
-      'Select all columns from all tables',
-      false,
-      'high'
-    ))
+    // 性能保护：限制表的数量
+    const maxTables = 20 // 最多处理20个表
+    if (allTables.length > maxTables) {
+      console.warn(`表数量过多 (${allTables.length})，限制为前 ${maxTables} 个表`)
+      allTables.splice(maxTables)
+    }
     
-    if (allTables.length > 0) {
-      console.log(`为 ${allTables.length} 个表加载所有列建议`)
+    checkTimeout()
+    
+    // 1. 表建议（在 FROM, JOIN, UPDATE 后）
+    const lastToken = (textBeforeCursor.match(/([A-Z_]+)\s*$/) || [])[1] || ''
+    const secondLastToken = (textBeforeCursor.match(/([A-Z_]+)\s+([A-Z_]+)\s*$/) || [])[1] || ''
+    const tableKeywords = ['FROM', 'JOIN', 'UPDATE']
+    
+    // 检测是否在UNION后 - 特殊处理，不返回表建议
+    const isAfterUnion = /\bUNION\s*(?:ALL\s*)?$/i.test(textBeforeCursor)
+    
+    if ((tableKeywords.includes(lastToken) || tableKeywords.includes(secondLastToken)) && !isAfterUnion) {
+      const tableSuggestions = await getTableSuggestions(sessionId, createCompletionItem, range)
+      dynamicSuggestions.push(...tableSuggestions)
+      return dynamicSuggestions // 只返回表建议
+    }
+    
+    // 1.5. UNION后的SELECT建议 - 添加SELECT关键字建议
+    if (isAfterUnion) {
+      console.log('检测到UNION后，添加SELECT建议')
+      dynamicSuggestions.push(createCompletionItem(
+        'SELECT',
+        monaco.languages.CompletionItemKind.Keyword,
+        'SELECT ',
+        range,
+        'SQL SELECT keyword',
+        'Start a new SELECT statement after UNION',
+        false,
+        'high'
+      ))
+      // 不返回，继续处理其他可能的建议
+    }
+    
+    checkTimeout()
+    
+    // 2. 点号后的列建议 - 只显示该表的列
+    if (sqlContext.isDotNotation && sqlContext.dotTableOrAlias) {
+      console.log(`点号表示法检测，只加载表 ${sqlContext.dotTableOrAlias} 的列`)
       
-      // 遍历所有表，加载每个表的列建议
-      for (const table of allTables) {
+      const matchedTable = allTables.find(t => 
+        t.alias === sqlContext.dotTableOrAlias || t.name === sqlContext.dotTableOrAlias
+      )
+      
+      if (matchedTable) {
+        console.log(`点号匹配到表:`, matchedTable)
+        const tableDisplayName = matchedTable.schema ? `[${matchedTable.schema}].[${matchedTable.name}]` : matchedTable.name
+        const columnSuggestions = await getColumnSuggestions(
+          sessionId,
+          matchedTable.name,
+          'dot notation',
+          matchedTable.schema,
+          createCompletionItem,
+          range,
+          tableDisplayName
+        )
+        return columnSuggestions
+      } else {
+        console.log(`点号未匹配到表，直接查询:`, sqlContext.dotTableOrAlias)
+        const columnSuggestions = await getColumnSuggestions(
+          sessionId,
+          sqlContext.dotTableOrAlias,
+          'dot notation (direct)',
+          undefined,
+          createCompletionItem,
+          range,
+          sqlContext.dotTableOrAlias
+        )
+        return columnSuggestions
+      }
+    }
+    
+    checkTimeout()
+    
+    // 3. SELECT 子句中的列建议 - 暴力加载所有表的列
+    if (sqlContext.isAfterSelectOrComma) {
+      console.log('SELECT子句检测，暴力加载所有表的列建议')
+      
+      // 添加 * 选项
+      dynamicSuggestions.push(createCompletionItem(
+        '*',
+        monaco.languages.CompletionItemKind.Field,
+        '* ',
+        range,
+        'Select all columns',
+        'Select all columns from all tables',
+        false,
+        'high'
+      ))
+      
+      if (allTables.length > 0) {
+        console.log(`为 ${allTables.length} 个表加载所有列建议`)
+        
+        // 遍历所有表，加载每个表的列建议
+        for (let i = 0; i < allTables.length; i++) {
+          checkTimeout() // 每个表处理前检查超时
+          
+          const table = allTables[i]
+          const tableDisplayName = table.schema ? `[${table.schema}].[${table.name}]` : table.name
+          console.log(`加载表 ${tableDisplayName} 的列建议 (${i + 1}/${allTables.length})`)
+          
+          const columnSuggestions = await getColumnSuggestions(
+            sessionId,
+            table.name,
+            'SELECT clause',
+            table.schema,
+            createCompletionItem,
+            range,
+            tableDisplayName
+          )
+          dynamicSuggestions.push(...columnSuggestions)
+        }
+        
+        console.log(`SELECT子句: 总共加载了 ${dynamicSuggestions.length - 1} 个列建议 (除去*)`)
+      } else {
+        // Fallback：从textBeforeCursor中解析表名
+        console.log('Fallback: 直接从文本解析表名')
+        const partialFromMatch = textBeforeCursor.match(/FROM\s+(?:\[?([^\]]+)\]?\.)??\[?([^\]]+)\]?/i)
+        if (partialFromMatch) {
+          const tableName = partialFromMatch[2] || partialFromMatch[1]
+          const schemaName = partialFromMatch[1] && partialFromMatch[2] ? partialFromMatch[1] : undefined
+          const tableDisplayName = schemaName ? `[${schemaName}].[${tableName}]` : tableName
+          console.log(`Fallback解析到表: ${tableDisplayName}`)
+          const columnSuggestions = await getColumnSuggestions(
+            sessionId,
+            tableName,
+            'SELECT clause (fallback)',
+            schemaName,
+            createCompletionItem,
+            range,
+            tableDisplayName
+          )
+          dynamicSuggestions.push(...columnSuggestions)
+        }
+      }
+      
+      return dynamicSuggestions
+    }
+    
+    checkTimeout()
+    
+    // 4. WHERE 子句 - 暴力加载所有表的列
+    const whereClauseMatch = textBeforeCursor.match(/WHERE\s+(?:.*?\s+(?:AND|OR)\s+)?$/i)
+    if (whereClauseMatch && allTables.length > 0) {
+      console.log('WHERE子句检测，暴力加载所有表的列')
+      
+      for (let i = 0; i < allTables.length; i++) {
+        checkTimeout() // 每个表处理前检查超时
+        
+        const table = allTables[i]
         const tableDisplayName = table.schema ? `[${table.schema}].[${table.name}]` : table.name
-        console.log(`加载表 ${tableDisplayName} 的列建议`)
+        console.log(`加载表 ${tableDisplayName} 的列建议 (WHERE) (${i + 1}/${allTables.length})`)
         
         const columnSuggestions = await getColumnSuggestions(
           sessionId,
           table.name,
-          'SELECT clause',
+          'WHERE clause',
           table.schema,
           createCompletionItem,
           range,
@@ -481,149 +686,109 @@ export async function generateDynamicSuggestions(
         dynamicSuggestions.push(...columnSuggestions)
       }
       
-      console.log(`SELECT子句: 总共加载了 ${dynamicSuggestions.length - 1} 个列建议 (除去*)`)
-    } else {
-      // Fallback：从textBeforeCursor中解析表名
-      console.log('Fallback: 直接从文本解析表名')
-      const partialFromMatch = textBeforeCursor.match(/FROM\s+(?:\[?([^\]]+)\]?\.)??\[?([^\]]+)\]?/i)
-      if (partialFromMatch) {
-        const tableName = partialFromMatch[2] || partialFromMatch[1]
-        const schemaName = partialFromMatch[1] && partialFromMatch[2] ? partialFromMatch[1] : undefined
-        const tableDisplayName = schemaName ? `[${schemaName}].[${tableName}]` : tableName
-        console.log(`Fallback解析到表: ${tableDisplayName}`)
-        const columnSuggestions = await getColumnSuggestions(
-          sessionId,
-          tableName,
-          'SELECT clause (fallback)',
-          schemaName,
-          createCompletionItem,
-          range,
-          tableDisplayName
-        )
-        dynamicSuggestions.push(...columnSuggestions)
-      }
+      return dynamicSuggestions
     }
     
-    return dynamicSuggestions
-  }
-  
-  // 4. WHERE 子句 - 暴力加载所有表的列
-  const whereClauseMatch = textBeforeCursor.match(/WHERE\s+(?:.*?\s+(?:AND|OR)\s+)?$/i)
-  if (whereClauseMatch && allTables.length > 0) {
-    console.log('WHERE子句检测，暴力加载所有表的列')
-    
-    for (const table of allTables) {
-      const tableDisplayName = table.schema ? `[${table.schema}].[${table.name}]` : table.name
-      console.log(`加载表 ${tableDisplayName} 的列建议 (WHERE)`)
-      
-      const columnSuggestions = await getColumnSuggestions(
-        sessionId,
-        table.name,
-        'WHERE clause',
-        table.schema,
-        createCompletionItem,
-        range,
-        tableDisplayName
-      )
-      dynamicSuggestions.push(...columnSuggestions)
-    }
-    
-    return dynamicSuggestions
-  }
-  
-  // 5. UPDATE SET 子句 - 只返回被更新表的列
-  const updateSetMatch = textBeforeCursor.match(/UPDATE\s+(?:\[?([^\]]+)\]?\.)??\[?([^\]]+)\]?\s+SET\s+(?:[\w.]+\s*=\s*[^,]+(?:,\s*)?)*(\w*)$/i)
-  if (updateSetMatch) {
-    console.log('UPDATE SET子句检测，只加载被更新表的列')
-    const tableName = updateSetMatch[2] || updateSetMatch[1]
-    const schemaName = updateSetMatch[1] && updateSetMatch[2] ? updateSetMatch[1] : undefined
-    const tableDisplayName = schemaName ? `[${schemaName}].[${tableName}]` : tableName
-    const columnSuggestions = await getColumnSuggestions(
-      sessionId,
-      tableName,
-      'UPDATE SET',
-      schemaName,
-      createCompletionItem,
-      range,
-      tableDisplayName
-    )
-    // 为每个列添加 " = " 后缀
-    columnSuggestions.forEach(suggestion => {
-      suggestion.insertText = suggestion.label + ' = '
-    })
-    return columnSuggestions
-  }
-  
-  // 6. INSERT INTO 子句 - 只返回插入表的列
-  const insertColumnsMatch = textBeforeCursor.match(/INSERT\s+INTO\s+(?:\[?([^\]]+)\]?\.)??\[?([^\]]+)\]?\s*\(\s*([^)]*)$/i)
-  if (insertColumnsMatch) {
-    console.log('INSERT INTO子句检测，只加载插入表的列')
-    const tableName = insertColumnsMatch[2] || insertColumnsMatch[1]
-    const schemaName = insertColumnsMatch[1] && insertColumnsMatch[2] ? insertColumnsMatch[1] : undefined
-    const existingColsText = insertColumnsMatch[3]
-    
-    if (!existingColsText.includes(')')) {
+    // 5. UPDATE SET 子句 - 只返回被更新表的列
+    const updateSetMatch = textBeforeCursor.match(/UPDATE\s+(?:\[([^\]]+)\]?\.)??\[?([^\]]+)\]?\s+SET\s+(?:[\w.]+\s*=\s*[^,]+(?:,\s*)?)*(\w*)$/i)
+    if (updateSetMatch) {
+      console.log('UPDATE SET子句检测，只加载被更新表的列')
+      const tableName = updateSetMatch[2] || updateSetMatch[1]
+      const schemaName = updateSetMatch[1] && updateSetMatch[2] ? updateSetMatch[1] : undefined
       const tableDisplayName = schemaName ? `[${schemaName}].[${tableName}]` : tableName
       const columnSuggestions = await getColumnSuggestions(
         sessionId,
         tableName,
-        'INSERT INTO',
+        'UPDATE SET',
         schemaName,
         createCompletionItem,
         range,
         tableDisplayName
       )
+      // 为每个列添加 " = " 后缀
+      columnSuggestions.forEach(suggestion => {
+        suggestion.insertText = suggestion.label + ' = '
+      })
       return columnSuggestions
     }
-  }
-  
-  // 7. UPDATE 后的 SET 建议
-  const updateTableMatch = textBeforeCursor.match(/UPDATE\s+(\b[A-Z0-9_.]+)\b\s*$/i)
-  if (updateTableMatch) {
-    dynamicSuggestions.push(createCompletionItem(
-      'SET',
-      monaco.languages.CompletionItemKind.Keyword,
-      'SET ',
-      range,
-      'SQL SET keyword',
-      undefined,
-      false,
-      'high'
-    ))
-    return dynamicSuggestions
-  }
-  
-  // 8. INSERT INTO 后的建议
-  const insertTableMatch = textBeforeCursor.match(/INSERT\s+INTO\s+(\b[A-Z0-9_.]+)\b\s*$/i)
-  if (insertTableMatch) {
-    dynamicSuggestions.push(
-      createCompletionItem(
-        '(',
-        monaco.languages.CompletionItemKind.Text,
-        '(',
-        range,
-        'Specify columns',
-        undefined,
-        false,
-        'high'
-      ),
-      createCompletionItem(
-        'VALUES',
+    
+    // 6. INSERT INTO 子句 - 只返回插入表的列
+    checkTimeout()
+    const insertColumnsMatch = textBeforeCursor.match(/INSERT\s+INTO\s+(?:\[?([^\]]+)\]?\.)??\[?([^\]]+)\]?\s*\(\s*([^)]*)$/i)
+    if (insertColumnsMatch) {
+      console.log('INSERT INTO子句检测，只加载插入表的列')
+      const tableName = insertColumnsMatch[2] || insertColumnsMatch[1]
+      const schemaName = insertColumnsMatch[1] && insertColumnsMatch[2] ? insertColumnsMatch[1] : undefined
+      const existingColsText = insertColumnsMatch[3]
+      
+      if (!existingColsText.includes(')')) {
+        const tableDisplayName = schemaName ? `[${schemaName}].[${tableName}]` : tableName
+        const columnSuggestions = await getColumnSuggestions(
+          sessionId,
+          tableName,
+          'INSERT INTO',
+          schemaName,
+          createCompletionItem,
+          range,
+          tableDisplayName
+        )
+        return columnSuggestions
+      }
+    }
+    
+    // 7. UPDATE 后的 SET 建议
+    checkTimeout()
+    const updateTableMatch = textBeforeCursor.match(/UPDATE\s+(\b[A-Z0-9_.]+)\b\s*$/i)
+    if (updateTableMatch) {
+      dynamicSuggestions.push(createCompletionItem(
+        'SET',
         monaco.languages.CompletionItemKind.Keyword,
-        'VALUES ',
+        'SET ',
         range,
-        'Specify values',
+        'SQL SET keyword',
         undefined,
         false,
         'high'
+      ))
+      return dynamicSuggestions
+    }
+    
+    // 8. INSERT INTO 后的建议
+    checkTimeout()
+    const insertTableMatch = textBeforeCursor.match(/INSERT\s+INTO\s+(\b[A-Z0-9_.]+)\b\s*$/i)
+    if (insertTableMatch) {
+      dynamicSuggestions.push(
+        createCompletionItem(
+          '(',
+          monaco.languages.CompletionItemKind.Text,
+          '(',
+          range,
+          'Specify columns',
+          undefined,
+          false,
+          'high'
+        ),
+        createCompletionItem(
+          'VALUES',
+          monaco.languages.CompletionItemKind.Keyword,
+          'VALUES ',
+          range,
+          'Specify values',
+          undefined,
+          false,
+          'high'
+        )
       )
-    )
+      return dynamicSuggestions
+    }
+    
+    console.log(`动态建议生成完成, 总数: ${dynamicSuggestions.length}`)
+    
     return dynamicSuggestions
+  } catch (error) {
+    console.error("Error generating dynamic suggestions:", error)
+    return []
   }
-  
-  console.log(`动态建议生成完成, 总数: ${dynamicSuggestions.length}`)
-  
-  return dynamicSuggestions
 }
 
 // 导出缓存管理功能
