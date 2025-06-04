@@ -3,7 +3,6 @@
 import { useEffect, useRef, useCallback, forwardRef, useImperativeHandle } from 'react'
 import Editor, { OnMount, Monaco as MonacoReact, loader } from '@monaco-editor/react'
 import { useTheme } from 'next-themes'
-import * as monaco from 'monaco-editor'
 import { useSession } from '@/components/session/SessionContext'
 import { format } from 'sql-formatter'
 import {
@@ -13,7 +12,33 @@ import {
   CreateCompletionItemFunction
 } from '@/lib/sqlparse'
 
-loader.config({ monaco })
+// Monaco 枚举值的常量替代（避免 SSR 问题）
+const COMPLETION_ITEM_KIND = {
+  Field: 5,
+  Function: 3,
+  Module: 9,
+  Keyword: 14,
+  Text: 1,
+  Variable: 12
+} as const
+
+const COMPLETION_ITEM_INSERT_TEXT_RULE = {
+  InsertAsSnippet: 4
+} as const
+
+// 动态加载 monaco-editor
+let monacoModule: any = null
+const loadMonaco = async () => {
+  if (typeof window !== 'undefined' && !monacoModule) {
+    try {
+      monacoModule = await import('monaco-editor')
+      loader.config({ monaco: monacoModule })
+    } catch (error) {
+      console.error('Failed to load monaco-editor:', error)
+    }
+  }
+  return monacoModule
+}
 
 interface SqlEditorProps {
   value: string
@@ -50,25 +75,25 @@ const SqlEditor = forwardRef<SqlEditorRef, SqlEditorProps>(({
 }, ref) => {
   const editorRef = useRef<any>(null)
   const monacoRef = useRef<MonacoReact | null>(null)
-  const completionProviderRef = useRef<monaco.IDisposable | null>(null)
+  const completionProviderRef = useRef<any | null>(null)
   const { theme } = useTheme()
   const { activeSession } = useSession()
 
   // Helper to create completion items consistently
   const createCompletionItem: CreateCompletionItemFunction = (
     label: string,
-    kind: monaco.languages.CompletionItemKind,
+    kind: any,
     insertText: string,
-    range: monaco.IRange,
+    range: any,
     detail?: string,
     documentation?: string,
     isSnippet: boolean = false,
     priority: 'high' | 'medium' | 'low' = 'medium'
-  ): monaco.languages.CompletionItem => {
+  ): any => {
     // 设置排序优先级：数字越小越靠前
     const sortText = priority === 'high' ? '1' : priority === 'medium' ? '2' : '3'
     
-    const item: monaco.languages.CompletionItem = {
+    const item: any = {
       label,
       kind,
       insertText,
@@ -78,7 +103,7 @@ const SqlEditor = forwardRef<SqlEditorRef, SqlEditorProps>(({
       sortText,
     }
     if (isSnippet) {
-      item.insertTextRules = monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet
+      item.insertTextRules = COMPLETION_ITEM_INSERT_TEXT_RULE.InsertAsSnippet
     }
     return item
   }
@@ -181,13 +206,13 @@ const SqlEditor = forwardRef<SqlEditorRef, SqlEditorProps>(({
 
           // 生成静态关键字建议
           const staticSuggestions = baseSqlKeywordsArray.map(keyword => {
-            let currentKind = monaco.languages.CompletionItemKind.Keyword
+            let currentKind: any = COMPLETION_ITEM_KIND.Keyword
             let currentInsertText = keyword + ' '
             let currentDetail = `SQL Keyword`
             let isSnippet = false
 
             if (['COUNT', 'SUM', 'AVG', 'MAX', 'MIN'].includes(keyword)) {
-              currentKind = monaco.languages.CompletionItemKind.Function
+              currentKind = COMPLETION_ITEM_KIND.Function
               currentInsertText = `${keyword}($1)$0`
               currentDetail = `Aggregate Function`
               isSnippet = true
@@ -239,7 +264,7 @@ const SqlEditor = forwardRef<SqlEditorRef, SqlEditorProps>(({
           const basicSuggestions = ['SELECT', 'FROM', 'WHERE', 'JOIN', 'INSERT', 'UPDATE', 'DELETE'].map(keyword => 
             createCompletionItem(
               keyword,
-              monaco.languages.CompletionItemKind.Keyword,
+              COMPLETION_ITEM_KIND.Keyword,
               keyword + ' ',
               {
                 startLineNumber: position.lineNumber,

@@ -1092,7 +1092,6 @@ pub async fn search_procedure_suggestions_advanced(
     // 使用临时表和多结果集的高级SQL查询
     let advanced_query = format!(r#"
         -- 创建临时表存储匹配的存储过程
-        DROP TABLE IF EXISTS #ProcedureMatches;
         CREATE TABLE #ProcedureMatches (
             object_id INT PRIMARY KEY, -- 添加主键以提高性能并确保唯一性
             schema_name NVARCHAR(128),
@@ -1103,7 +1102,7 @@ pub async fn search_procedure_suggestions_advanced(
         -- 插入匹配的存储过程（按名称搜索）
         -- 移除了 DISTINCT，因为 object_id 已经是唯一的
         INSERT INTO #ProcedureMatches (object_id, schema_name, procedure_name, match_priority)
-        SELECT TOP 20
+        SELECT
             p.object_id,
             SCHEMA_NAME(p.schema_id) as schema_name,
             p.name as procedure_name,
@@ -1115,7 +1114,7 @@ pub async fn search_procedure_suggestions_advanced(
         -- 插入匹配的存储过程（按Schema搜索，排除重复）
         -- 优化了 Schema 搜索，并使用 NOT EXISTS
         INSERT INTO #ProcedureMatches (object_id, schema_name, procedure_name, match_priority)
-        SELECT TOP 10
+        SELECT
             p.object_id,
             s.name as schema_name, --直接从 sys.schemas 获取
             p.name as procedure_name,

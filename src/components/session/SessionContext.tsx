@@ -4,9 +4,10 @@
 import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react'
 import { QuerySession as Session, ConnectionConfig } from '@/types/database'
 import { testConnection } from '@/lib/api'
-import { toast } from 'sonner'
+import { toast } from '@/hooks/use-toast'
 import { useConnections } from '@/hooks/useConnections'
 import { WorkspaceService } from '@/lib/workspace'
+import { SqlCacheManager } from '@/lib/sqlparse'
 
 // 定义 context 类型
 interface SessionContextType {
@@ -73,6 +74,16 @@ export const SessionProvider = ({ children }: { children: ReactNode }) => {
 
       setSessions(newSessionsList);
       setActiveSessionState(newSession);
+      
+      // 后台预加载存储过程（提高自动补全性能）
+      toast.promise(
+        SqlCacheManager.preloadProceduresForSession(newSession.id),
+        {
+          loading: '正在预加载存储过程信息...',
+          success: '存储过程预加载完成，自动补全性能已优化',
+          error: '存储过程预加载失败，将在使用时动态加载'
+        }
+      )
       
       // 处理工作区绑定
       const manager = WorkspaceService.getWorkspaces()
@@ -148,6 +159,20 @@ export const SessionProvider = ({ children }: { children: ReactNode }) => {
     setSessions(updatedSessions)
     setActiveSessionState(session)
 
+    // 确保新活动会话的存储过程已预加载（提高自动补全性能）
+    const status = SqlCacheManager.getPreloadStatus(session.id)
+    if (!status.isLoaded && !status.isLoading) {
+      console.log(`为新活动会话 ${session.connectionName} 触发存储过程预加载`)
+      toast.promise(
+        SqlCacheManager.preloadProceduresForSession(session.id),
+        {
+          loading: `正在为 ${session.connectionName} 预加载存储过程...`,
+          success: `${session.connectionName} 存储过程预加载完成`,
+          error: `${session.connectionName} 存储过程预加载失败`
+        }
+      )
+    }
+
     // 更新当前工作区的连接信息
     const manager = WorkspaceService.getWorkspaces()
     const currentWorkspace = manager.workspaces.find(ws => ws.id === manager.activeWorkspaceId)
@@ -170,6 +195,9 @@ export const SessionProvider = ({ children }: { children: ReactNode }) => {
 
       console.log('开始初始化会话....')
       setIsInitializing(true);
+      
+      // 清除任何可能残留的toast（防护机制）
+      toast.dismiss()
 
       let existingSessions: Session[] = sessions
       const manager = WorkspaceService.getWorkspaces()
@@ -256,6 +284,97 @@ export const SessionProvider = ({ children }: { children: ReactNode }) => {
 
         setSessions(withFlags)
         setActiveSessionState(active)
+        
+        // 后台预加载所有会话的存储过程（提高自动补全性能）
+        if (newSessions.length > 0) {
+          // 显示开始预加载的toast
+          const loadingToast = toast.loading(
+            `正在预加载 ${newSessions.length} 个会话的存储过程信息...`,
+            { duration: Infinity }
+          )
+          
+          console.log('开始预加载存储过程，loading toast ID:', loadingToast)
+          
+          // 预加载所有会话
+          const preloadPromises = newSessions.map(async (session) => {
+            try {
+              const success = await SqlCacheManager.preloadProceduresForSession(session.id)
+              console.log(`会话 ${session.connectionName} 预加载完成，结果:`, success)
+              return { session, success }
+            } catch (error) {
+              console.warn(`会话 ${session.connectionName} 存储过程预加载失败:`, error)
+              return { session, success: false }
+            }
+          })
+          
+          // 设置超时保护，最多等待60秒
+          const timeoutPromise = new Promise((_, reject) => {
+            setTimeout(() => reject(new Error('预加载超时')), 60 * 1000)
+          })
+          
+          // 执行预加载并处理结果
+          Promise.race([
+            Promise.all(preloadPromises),
+            timeoutPromise
+          ]).then((results) => {
+            console.log('所有预加载完成，准备dismiss toast，结果:', results)
+            
+            // 立即清除loading toast
+            toast.dismiss(String(loadingToast))
+            toast.dismiss() // 额外保险，清除所有toast
+            
+            console.log('已调用toast.dismiss')
+            
+            // 延迟一下再显示结果toast，确保loading toast已经清除
+            setTimeout(() => {
+              if (Array.isArray(results)) {
+                const successCount = results.filter(r => r.success).length
+                const totalCount = results.length
+                
+                console.log(`预加载结果统计: ${successCount}/${totalCount}`)
+                
+                if (successCount === totalCount) {
+                  toast.success(
+                    `所有会话的存储过程预加载完成`,
+                    { description: `${successCount} 个会话的自动补全性能已优化`, duration: 2000 }
+                  )
+                } else if (successCount > 0) {
+                  toast.warning(
+                    `部分会话预加载完成`,
+                    { description: `${successCount}/${totalCount} 个会话预加载成功`, duration: 2500 }
+                  )
+                } else {
+                  toast.error(
+                    `存储过程预加载失败`,
+                    { description: '将在使用时动态加载', duration: 2500 }
+                  )
+                }
+              }
+            }, 100) // 100ms延迟确保loading toast已清除
+            
+          }).catch((error) => {
+            console.error('预加载操作出现错误或超时:', error)
+            
+            // 立即清除loading toast
+            toast.dismiss(String(loadingToast))
+            toast.dismiss() // 额外保险
+            
+            // 延迟显示错误信息
+            setTimeout(() => {
+              if (error.message === '预加载超时') {
+                toast.warning(
+                  `存储过程预加载超时`,
+                  { description: '部分数据可能仍在后台加载，将在使用时动态补全', duration: 3000 }
+                )
+              } else {
+                toast.error(
+                  `存储过程预加载失败`,
+                  { description: '将在使用时动态加载', duration: 2500 }
+                )
+              }
+            }, 100)
+          })
+        }
         
         // 如果有活动会话，确保其对应的工作区存在
         if (active) {

@@ -18,10 +18,11 @@ import {
   DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog'
-import { Database, Plus, X } from 'lucide-react'
+import { Database, Plus, X, RefreshCw } from 'lucide-react'
 import ConnectionList from '@/components/connection/ConnectionList'
 import { ConnectionConfig } from '@/types/database'
 import { useToast } from '@/hooks/use-toast'
+import { SqlCacheManager } from '@/lib/sqlparse'
 
 export default function SessionSelector() {
   const {
@@ -37,6 +38,7 @@ export default function SessionSelector() {
   const [isNewSessionOpen, setIsNewSessionOpen] = useState(false)
   const [isConnecting, setIsConnecting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [showPreloadStatus, setShowPreloadStatus] = useState(false)
 
   // 处理会话切换
   const handleSessionChange = useCallback((session_id: string) => {
@@ -104,6 +106,34 @@ export default function SessionSelector() {
     return `${activeSession.connectionName} - ${activeSession.database}`
   }, [activeSession])
 
+  // 新增：检查预加载状态
+  const checkPreloadStatus = useCallback(() => {
+    if (!activeSession) return
+
+    const status = SqlCacheManager.getPreloadStatus(activeSession.id)
+    const stats = SqlCacheManager.getStats()
+
+    toast.success(
+      `预加载状态: ${status.isLoaded ? '已完成' : (status.isLoading ? '加载中' : '未加载')} | ` +
+      `存储过程数: ${status.procedureCount} | ` +
+      `缓存会话数: ${stats.preloadedSessions.length}`
+    )
+  }, [activeSession, toast])
+
+  // 新增：手动刷新预加载
+  const refreshPreload = useCallback(async () => {
+    if (!activeSession) return
+
+    toast.info('正在刷新存储过程预加载...')
+    const success = await SqlCacheManager.refreshPreloadCache(activeSession.id)
+
+    if (success) {
+      toast.success('存储过程预加载刷新成功')
+    } else {
+      toast.error('存储过程预加载刷新失败')
+    }
+  }, [activeSession, toast])
+
   if (isInitializing) {
     return (
       <div className="flex items-center space-x-2">
@@ -166,6 +196,25 @@ export default function SessionSelector() {
       >
         <Plus className="h-4 w-4" />
       </Button>
+
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={checkPreloadStatus}
+        title="检查预加载状态"
+      >
+        <Database className="h-3 w-3" />
+      </Button>
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={refreshPreload}
+        title="刷新预加载"
+      >
+        <RefreshCw className="h-3 w-3" />
+      </Button>
+
+
 
       <Dialog open={isNewSessionOpen} onOpenChange={setIsNewSessionOpen}>
         <DialogContent className="sm:max-w-[800px]">
