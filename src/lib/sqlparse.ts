@@ -201,9 +201,8 @@ function filterProceduresSynchronously(sessionId: string, keyword: string): any[
   
   const procedures = cache.procedures || []
   
-  // 如果没有关键字，返回前200个
   if (!keyword.trim()) {
-    return procedures.slice(0, 200)
+    return procedures
   }
   
   // 同步过滤：先按名称精确匹配，再按名称模糊匹配，最后按schema匹配
@@ -221,9 +220,9 @@ function filterProceduresSynchronously(sessionId: string, keyword: string): any[
     proc.schema_name.toLowerCase().includes(keyword.toLowerCase())
   )
   
-  // 合并结果，最多返回200个
+  // 合并结果
   const allMatches = [...exactNameMatches, ...fuzzyNameMatches, ...schemaMatches]
-  return allMatches.slice(0, 200)
+  return allMatches
 }
 
 // 获取存储过程建议的统一函数（改为同步过滤 + 异步预加载）
