@@ -260,14 +260,13 @@ export async function preloadProcedures(sessionId: string, forceFullReload = fal
     console.log(`进行全量预加载: ${sessionId}`)
     const allProcedures = await search_procedure_suggestionitems(sessionId, '')
     
-    // 转换格式并生成校验和
+    // 转换格式并生成校验和（精简版）
     const proceduresWithMetadata = allProcedures.map(proc => ({
       id: `${proc.schema_name}.${proc.name}`,
       name: proc.name,
       schema_name: proc.schema_name,
-      parameters: proc.parameters || [],
-      description: proc.full_name || '', // 使用full_name作为描述
-      definition: proc.execute_template || '', // 使用执行模板作为定义
+      full_name: proc.full_name || `[${proc.schema_name}].[${proc.name}]`,
+      execute_template: proc.execute_template || '', // 包含所有必要信息
       lastModified: new Date().toISOString(),
       checksum: generateChecksumForProcedure(proc)
     }))
@@ -321,14 +320,13 @@ async function performIncrementalUpdate(sessionId: string): Promise<void> {
     // 获取最新的存储过程列表
     const latestProcedures = await search_procedure_suggestionitems(sessionId, '')
     
-    // 转换格式
+    // 转换格式（精简版）
     const proceduresWithMetadata = latestProcedures.map(proc => ({
       id: `${proc.schema_name}.${proc.name}`,
       name: proc.name,
       schema_name: proc.schema_name,
-      parameters: proc.parameters || [],
-      description: proc.full_name || '', // 使用full_name作为描述
-      definition: proc.execute_template || '', // 使用执行模板作为定义
+      full_name: proc.full_name || `[${proc.schema_name}].[${proc.name}]`,
+      execute_template: proc.execute_template || '', // 包含所有必要信息
       lastModified: new Date().toISOString(),
       checksum: generateChecksumForProcedure(proc)
     }))
@@ -950,62 +948,41 @@ export async function generateDynamicSuggestions(
         const procedureSuggestions = await getProcedureSuggestions(sessionId, keywordAfterExec)
         console.log(`获取到 ${procedureSuggestions.length} 个存储过程建议`)
         
-        // 生成存储过程建议项，增强数据验证
+        // 生成存储过程建议项
         procedureSuggestions.forEach(proc => {
           if (proc && proc.name && createCompletionItem && range) {
-            // 数据验证和清理
-            const name = proc.name?.toString() || 'UnknownProcedure'
-            const schemaName = proc.schema_name?.toString() || 'dbo'
-            const fullName = proc.full_name?.toString() || `[${schemaName}].[${name}]`
-            const executeTemplate = proc.execute_template?.toString() || `EXEC [${schemaName}].[${name}]`
-            const parameters = Array.isArray(proc.parameters) ? proc.parameters : []
+            const insertText = proc.execute_template
             
-            // 构建详细的documentation，确保所有字符串都是有效的
-            let documentation = `存储过程: ${fullName}\n`
-            if (parameters.length > 0) {
-              documentation += `\n参数:\n`
-              parameters.forEach((param: any) => {
-                if (param && param.name) {
-                  const paramName = param.name?.toString() || 'UnknownParam'
-                  const dataType = param.data_type?.toString() || 'unknown'
+            // 构建详细的documentation（兼容持久化缓存数据）
+            let documentation = `存储过程: ${proc.full_name || proc.name}\n`
+            
+            // 检查是否有parameters字段（API数据有，持久化缓存数据没有）
+            if (proc.parameters && Array.isArray(proc.parameters)) {
+              if (proc.parameters.length > 0) {
+                documentation += `\n参数:\n`
+                proc.parameters.forEach((param: any) => {
                   const outputLabel = param.is_output ? ' (OUTPUT)' : ''
                   const defaultLabel = param.has_default ? ' (可选)' : ' (必需)'
-                  documentation += `  ${paramName}: ${dataType}${outputLabel}${defaultLabel}\n`
-                }
-              })
+                  documentation += `  ${param.name}: ${param.data_type}${outputLabel}${defaultLabel}\n`
+                })
+              } else {
+                documentation += `\n无参数`
+              }
             } else {
-              documentation += `\n无参数`
+              // 持久化缓存数据，参数信息已包含在execute_template中
+              documentation += `\n参数信息包含在执行模板中`
             }
             
-            // 确保insertText不包含undefined或null
-            const safeInsertText = executeTemplate || `EXEC [${schemaName}].[${name}]`
-            const safeDetail = schemaName || 'dbo'
-            
-            try {
-              dynamicSuggestions.push(createCompletionItem(
-                name,
-                COMPLETION_ITEM_KIND.Function,
-                safeInsertText,
-                range,
-                safeDetail, // detail显示schema
-                documentation,
-                true, // 这是一个snippet
-                'high'
-              ))
-            } catch (itemError) {
-              console.error(`创建存储过程建议项失败: ${name}`, itemError)
-              // 创建简化版本作为fallback
-              dynamicSuggestions.push(createCompletionItem(
-                name,
-                COMPLETION_ITEM_KIND.Function,
-                `EXEC [${schemaName}].[${name}]`,
-                range,
-                safeDetail,
-                `存储过程: ${fullName}`,
-                false, // 不使用snippet
-                'high'
-              ))
-            }
+            dynamicSuggestions.push(createCompletionItem(
+              proc.name,
+              COMPLETION_ITEM_KIND.Function,
+              insertText,
+              range,
+              `${proc.schema_name}`, // detail显示schema
+              documentation,
+              true, // 这是一个snippet
+              'high'
+            ))
           }
         })
         

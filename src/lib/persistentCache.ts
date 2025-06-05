@@ -3,9 +3,8 @@ interface StoredProcedure {
   id: string // schema.name 作为唯一标识
   name: string
   schema_name: string
-  parameters?: any[]
-  description?: string
-  definition?: string // 存储过程定义
+  full_name?: string // 完整名称 [schema].[name]
+  execute_template?: string // 执行模板脚本（包含所有必要信息）
   lastModified?: string // 最后修改时间
   checksum?: string // 内容校验和
 }
@@ -40,7 +39,7 @@ interface PersistentCacheStats {
 
 class PersistentCacheManager {
   private dbName = 'SqlCacheDB'
-  private dbVersion = 2
+  private dbVersion = 4 // 升级版本，移除无用字段(parameters,description,definition)
   private db: IDBDatabase | null = null
   private readonly MAX_CACHE_SIZE_MB = 300 // 最大缓存大小（MB）
   
@@ -137,20 +136,19 @@ class PersistentCacheManager {
     })
   }
   
-  // 估算数据大小（MB）
+  // 估算数据大小（MB）- 精简版
   private estimateDataSize(procedures: StoredProcedure[]): number {
     let totalBytes = 0
     procedures.forEach(proc => {
-      // 估算每个字段的字节数
+      // 估算每个字段的字节数（只保留有用字段）
       totalBytes += (proc.id?.length || 0) * 2 // UTF-16编码
       totalBytes += (proc.name?.length || 0) * 2
       totalBytes += (proc.schema_name?.length || 0) * 2
-      totalBytes += (proc.description?.length || 0) * 2
-      totalBytes += (proc.definition?.length || 0) * 2
+      totalBytes += (proc.full_name?.length || 0) * 2
+      totalBytes += (proc.execute_template?.length || 0) * 2 // 主要内容
       totalBytes += (proc.lastModified?.length || 0) * 2
       totalBytes += (proc.checksum?.length || 0) * 2
-      totalBytes += JSON.stringify(proc.parameters || []).length * 2
-      totalBytes += 200 // 索引和其他开销
+      totalBytes += 100 // 索引和其他开销（减少）
     })
     return totalBytes / (1024 * 1024) // 转换为MB
   }
@@ -255,7 +253,7 @@ class PersistentCacheManager {
       p.id, 
       { 
         ...p, 
-        checksum: this.generateChecksum(`${p.name}${p.schema_name}${p.definition || ''}`) 
+        checksum: this.generateChecksum(`${p.name}${p.schema_name}${p.execute_template || ''}`) 
       }
     ]))
     

@@ -264,14 +264,14 @@ export default function SessionSelector() {
         <Plus className="h-4 w-4" />
       </Button>
 
-      <Button
+      {/* <Button
         variant="outline"
         size="sm"
         onClick={checkPreloadStatus}
         title="检查预加载状态"
       >
         <Database className="h-3 w-3" />
-      </Button>
+      </Button> */}
       <Button
         variant="outline"
         size="sm"
