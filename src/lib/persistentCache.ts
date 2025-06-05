@@ -42,7 +42,7 @@ class PersistentCacheManager {
   private dbName = 'SqlCacheDB'
   private dbVersion = 2
   private db: IDBDatabase | null = null
-  private readonly MAX_CACHE_SIZE_MB = 100 // 最大缓存大小（MB）
+  private readonly MAX_CACHE_SIZE_MB = 300 // 最大缓存大小（MB）
   
   async init(): Promise<void> {
     if (this.db) return
@@ -212,23 +212,29 @@ class PersistentCacheManager {
     }
   }
 
-  // 检查容量并清理（在保存前调用）
-  async ensureCacheCapacity(sessionId: string, newDataSizeMB: number): Promise<void> {
+  // 检查是否需要执行LRU清理（事后清理策略）
+  private async checkAndPerformLRUCleanup(): Promise<void> {
     const currentSize = await this.getCurrentCacheSize()
-    const existingSessionMeta = await this.getSessionMetadata(sessionId)
-    const existingSize = existingSessionMeta?.estimatedSizeMB || 0
     
-    // 计算需要的总空间（减去现有会话的空间）
-    const requiredSpace = currentSize - existingSize + newDataSizeMB
-    
-    if (requiredSpace > this.MAX_CACHE_SIZE_MB) {
-      const needToFree = requiredSpace - this.MAX_CACHE_SIZE_MB
-      console.log(`缓存容量不足，需要释放 ${needToFree.toFixed(2)}MB 空间`)
+    if (currentSize > this.MAX_CACHE_SIZE_MB) {
+      const excessSize = currentSize - this.MAX_CACHE_SIZE_MB
+      console.log(`缓存超过限制 ${currentSize.toFixed(1)}MB > ${this.MAX_CACHE_SIZE_MB}MB，执行LRU清理，需要释放 ${excessSize.toFixed(1)}MB`)
       
-      const removedSessions = await this.cleanupLRUSessions(needToFree)
+      const removedSessions = await this.cleanupLRUSessions(excessSize)
       if (removedSessions.length > 0) {
         console.log(`LRU清理完成，删除了会话: ${removedSessions.join(', ')}`)
       }
+    } else {
+      console.log(`缓存使用正常: ${currentSize.toFixed(1)}MB / ${this.MAX_CACHE_SIZE_MB}MB`)
+    }
+  }
+
+  // 更新会话访问时间（保存时）
+  private async updateSessionAccessOnSave(sessionId: string): Promise<void> {
+    const metadata = await this.getSessionMetadata(sessionId)
+    if (metadata) {
+      metadata.lastAccessed = Date.now()
+      await this.saveSessionMetadata(metadata)
     }
   }
 
@@ -240,9 +246,7 @@ class PersistentCacheManager {
   ): Promise<{ added: number, updated: number, deleted: number }> {
     await this.init()
     
-    // 检查容量并进行LRU清理
-    const newDataSize = this.estimateDataSize(newProcedures)
-    await this.ensureCacheCapacity(sessionId, newDataSize)
+    // 注释：现在采用事后清理策略，先保存再检查容量
     
     // 获取现有存储过程
     const existingProcedures = await this.getAllProcedures(sessionId)
@@ -346,6 +350,9 @@ class PersistentCacheManager {
     }
     
     await this.saveSessionMetadata(metadata)
+    
+    // 保存完成后检查是否需要LRU清理
+    await this.checkAndPerformLRUCleanup()
     
     return { added, updated, deleted }
   }

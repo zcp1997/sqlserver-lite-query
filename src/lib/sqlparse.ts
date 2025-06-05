@@ -950,34 +950,62 @@ export async function generateDynamicSuggestions(
         const procedureSuggestions = await getProcedureSuggestions(sessionId, keywordAfterExec)
         console.log(`获取到 ${procedureSuggestions.length} 个存储过程建议`)
         
-        // 生成存储过程建议项
+        // 生成存储过程建议项，增强数据验证
         procedureSuggestions.forEach(proc => {
           if (proc && proc.name && createCompletionItem && range) {
-            const insertText = proc.execute_template
+            // 数据验证和清理
+            const name = proc.name?.toString() || 'UnknownProcedure'
+            const schemaName = proc.schema_name?.toString() || 'dbo'
+            const fullName = proc.full_name?.toString() || `[${schemaName}].[${name}]`
+            const executeTemplate = proc.execute_template?.toString() || `EXEC [${schemaName}].[${name}]`
+            const parameters = Array.isArray(proc.parameters) ? proc.parameters : []
             
-            // 构建详细的documentation
-            let documentation = `存储过程: ${proc.full_name}\n`
-            if (proc.parameters.length > 0) {
+            // 构建详细的documentation，确保所有字符串都是有效的
+            let documentation = `存储过程: ${fullName}\n`
+            if (parameters.length > 0) {
               documentation += `\n参数:\n`
-              proc.parameters.forEach((param: any) => {
-                const outputLabel = param.is_output ? ' (OUTPUT)' : ''
-                const defaultLabel = param.has_default ? ' (可选)' : ' (必需)'
-                documentation += `  ${param.name}: ${param.data_type}${outputLabel}${defaultLabel}\n`
+              parameters.forEach((param: any) => {
+                if (param && param.name) {
+                  const paramName = param.name?.toString() || 'UnknownParam'
+                  const dataType = param.data_type?.toString() || 'unknown'
+                  const outputLabel = param.is_output ? ' (OUTPUT)' : ''
+                  const defaultLabel = param.has_default ? ' (可选)' : ' (必需)'
+                  documentation += `  ${paramName}: ${dataType}${outputLabel}${defaultLabel}\n`
+                }
               })
             } else {
               documentation += `\n无参数`
             }
             
-            dynamicSuggestions.push(createCompletionItem(
-              proc.name,
-              COMPLETION_ITEM_KIND.Function,
-              insertText,
-              range,
-              `${proc.schema_name}`, // detail显示schema
-              documentation,
-              true, // 这是一个snippet
-              'high'
-            ))
+            // 确保insertText不包含undefined或null
+            const safeInsertText = executeTemplate || `EXEC [${schemaName}].[${name}]`
+            const safeDetail = schemaName || 'dbo'
+            
+            try {
+              dynamicSuggestions.push(createCompletionItem(
+                name,
+                COMPLETION_ITEM_KIND.Function,
+                safeInsertText,
+                range,
+                safeDetail, // detail显示schema
+                documentation,
+                true, // 这是一个snippet
+                'high'
+              ))
+            } catch (itemError) {
+              console.error(`创建存储过程建议项失败: ${name}`, itemError)
+              // 创建简化版本作为fallback
+              dynamicSuggestions.push(createCompletionItem(
+                name,
+                COMPLETION_ITEM_KIND.Function,
+                `EXEC [${schemaName}].[${name}]`,
+                range,
+                safeDetail,
+                `存储过程: ${fullName}`,
+                false, // 不使用snippet
+                'high'
+              ))
+            }
           }
         })
         
