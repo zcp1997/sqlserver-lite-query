@@ -1,16 +1,42 @@
 "use client"
 
-import { useEffect, useRef, useCallback, forwardRef, useImperativeHandle } from 'react'
+import { useEffect, useRef, useCallback, forwardRef, useImperativeHandle, useState } from 'react'
 import Editor, { OnMount, Monaco as MonacoReact, loader } from '@monaco-editor/react'
 import { useTheme } from 'next-themes'
 import { useSession } from '@/components/session/SessionContext'
 import { format } from 'sql-formatter'
+import { v4 as uuidv4 } from 'uuid'
 import {
   parseTablesAndAliases,
   analyzeSqlContext,
   generateDynamicSuggestions,
   CreateCompletionItemFunction
 } from '@/lib/sqlparse'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import { SaveIcon } from 'lucide-react'
+import { useToast } from '@/hooks/use-toast'
+import { SqlScript } from '@/types/database'
+
+// 本地存储键
+const SCRIPTS_STORAGE_KEY = 'sqlserver-scripts'
+const GROUPS_STORAGE_KEY = 'sqlserver-script-groups'
 
 // Monaco 枚举值的常量替代（避免 SSR 问题）
 const COMPLETION_ITEM_KIND = {
@@ -76,8 +102,122 @@ const SqlEditor = forwardRef<SqlEditorRef, SqlEditorProps>(({
   const editorRef = useRef<any>(null)
   const monacoRef = useRef<MonacoReact | null>(null)
   const completionProviderRef = useRef<any | null>(null)
-  const { theme } = useTheme()
+  const { resolvedTheme } = useTheme()
   const { activeSession } = useSession()
+  const { toast } = useToast()
+
+  // 保存到脚本的状态管理
+  const [isSaveDialogOpen, setIsSaveDialogOpen] = useState(false)
+  const [saveDialogScript, setSaveDialogScript] = useState<Partial<SqlScript>>({
+    name: '',
+    groupName: '默认分组',
+    content: '',
+    description: ''
+  })
+  const [groups, setGroups] = useState<string[]>(['默认分组'])
+
+  // 加载脚本分组
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    
+    try {
+      const savedGroups = localStorage.getItem(GROUPS_STORAGE_KEY)
+      if (savedGroups) {
+        const parsedGroups = JSON.parse(savedGroups) as string[]
+        if (Array.isArray(parsedGroups) && parsedGroups.length > 0) {
+          setGroups(parsedGroups)
+        }
+      }
+    } catch (err) {
+      console.error('加载分组数据失败:', err)
+    }
+  }, [])
+
+  // 获取选中文本或全部文本
+  const getTextToSave = useCallback(() => {
+    if (!editorRef.current) return ''
+    
+    const selection = editorRef.current.getSelection()
+    if (selection && !selection.isEmpty()) {
+      // 有选中文本，返回选中的内容
+      return editorRef.current.getModel()?.getValueInRange(selection) || ''
+    } else {
+      // 没有选中文本，返回全部内容
+      return editorRef.current.getValue() || ''
+    }
+  }, [])
+
+  // 保存脚本到本地存储
+  const saveScriptToStorage = useCallback(() => {
+    if (!saveDialogScript.name?.trim()) {
+      toast.error('脚本名称不能为空')
+      return
+    }
+    
+    if (!saveDialogScript.content?.trim()) {
+      toast.error('脚本内容不能为空')
+      return
+    }
+
+    try {
+      // 加载现有脚本
+      const savedScripts = localStorage.getItem(SCRIPTS_STORAGE_KEY)
+      const existingScripts: SqlScript[] = savedScripts ? JSON.parse(savedScripts) : []
+      
+      // 创建新脚本
+      const now = new Date().toISOString()
+      const newScript: SqlScript = {
+        id: uuidv4(),
+        name: saveDialogScript.name!,
+        groupName: saveDialogScript.groupName || '默认分组',
+        content: saveDialogScript.content!,
+        description: saveDialogScript.description || '',
+        createdAt: now,
+        updatedAt: now
+      }
+      
+      // 保存到本地存储
+      const updatedScripts = [...existingScripts, newScript]
+      localStorage.setItem(SCRIPTS_STORAGE_KEY, JSON.stringify(updatedScripts))
+      
+      toast.success(`已保存脚本: ${newScript.name}`)
+      
+      // 关闭对话框并重置状态
+      setIsSaveDialogOpen(false)
+      setSaveDialogScript({
+        name: '',
+        groupName: '默认分组',
+        content: '',
+        description: ''
+      })
+    } catch (err) {
+      console.error('保存脚本失败:', err)
+      toast.error('保存脚本失败')
+    }
+  }, [saveDialogScript, toast])
+
+  // 打开保存对话框
+  const openSaveDialog = useCallback(() => {
+    const textToSave = getTextToSave()
+    if (!textToSave.trim()) {
+      toast.error('没有可保存的SQL内容')
+      return
+    }
+
+    // 生成默认脚本名称
+    const firstLine = textToSave.split('\n')[0].trim()
+    const defaultName = firstLine.length > 30 
+      ? firstLine.substring(0, 30) + '...' 
+      : firstLine || '新建脚本'
+
+    setSaveDialogScript({
+      name: defaultName,
+      groupName: '默认分组',
+      content: textToSave,
+      description: ''
+    })
+    setIsSaveDialogOpen(true)
+  }, [getTextToSave, toast])
 
   // Helper to create completion items consistently
   const createCompletionItem: CreateCompletionItemFunction = (
@@ -112,6 +252,10 @@ const SqlEditor = forwardRef<SqlEditorRef, SqlEditorProps>(({
     editorRef.current = editor
     monacoRef.current = monacoInstance
 
+    // 立即设置主题，避免初始渲染时的主题闪烁
+    const monacoTheme = resolvedTheme === 'dark' ? 'vs-dark' : 'vs'
+    monacoInstance.editor.setTheme(monacoTheme)
+
     // 监听选择变化事件
     editor.onDidChangeCursorSelection((e) => {
       const selection = editor.getSelection()
@@ -120,6 +264,17 @@ const SqlEditor = forwardRef<SqlEditorRef, SqlEditorProps>(({
         onSelectionChange?.(selectedText)
       } else {
         onSelectionChange?.('')
+      }
+    })
+
+    // 注册右键菜单
+    editor.addAction({
+      id: 'save-to-scripts',
+      label: '保存到脚本',
+      contextMenuGroupId: 'navigation',
+      contextMenuOrder: 1.5,
+      run: function() {
+        openSaveDialog()
       }
     })
 
@@ -297,10 +452,11 @@ const SqlEditor = forwardRef<SqlEditorRef, SqlEditorProps>(({
 
   useEffect(() => {
     if (monacoRef.current) {
-      const monacoTheme = theme === 'dark' ? 'vs-dark' : 'vs'
+      // 当resolvedTheme为undefined时，使用默认浅色主题
+      const monacoTheme = resolvedTheme === 'dark' ? 'vs-dark' : 'vs'
       monacoRef.current.editor.setTheme(monacoTheme)
     }
-  }, [theme])
+  }, [resolvedTheme])
 
   // Cleanup completion provider on unmount
   useEffect(() => {
@@ -361,132 +517,221 @@ const SqlEditor = forwardRef<SqlEditorRef, SqlEditorProps>(({
   }), [handleFormatSQL])
 
   return (
-    <div className="h-full w-full overflow-hidden border rounded-md">
-      <style jsx global>{`
-        /* 自定义Monaco Editor建议窗口样式 */
-        .monaco-editor .suggest-widget {
-          width: 450px !important;
-          min-width: 400px !important;
-        }
-        
-        .monaco-editor .suggest-widget .monaco-list .monaco-list-row {
-          height: auto !important;
-          min-height: 22px !important;
-        }
-        
-        .monaco-editor .suggest-widget .monaco-list .monaco-list-row .contents {
-          padding: 4px 8px !important;
-        }
-        
-        .monaco-editor .suggest-widget .monaco-list .monaco-list-row .label {
-          max-width: none !important;
-          white-space: nowrap !important;
-        }
-        
-        .monaco-editor .suggest-widget .monaco-list .monaco-list-row .details {
-          max-width: none !important;
-          white-space: nowrap !important;
-          overflow: visible !important;
-        }
-        
-        .monaco-editor .suggest-widget .docs {
-          width: 300px !important;
-          min-width: 250px !important;
-        }
-        
-        /* 确保建议窗口不被截断 */
-        .monaco-editor .suggest-widget.docs-side {
-          width: 750px !important;
-        }
-      `}</style>
-      <Editor
-        height="100%"
-        language="sql"
-        value={value}
-        onChange={(val) => onChange(val || '')}
-        onMount={handleEditorDidMount}
-        options={{
-          minimap: { enabled: false },
-          scrollBeyondLastLine: false,
-          wrappingIndent: 'indent',
-          automaticLayout: true,
-          tabSize: 2,
-          readOnly,
-          fontSize: 14,
-          fontFamily: [
-            '"JetBrainsMono"',
-            '"Source Code Pro"',      // 更好的中文兼容性
-            '"Microsoft YaHei Mono"', // Windows 中文等宽
-            '"PingFang SC"',          // macOS 中文
-            '"Noto Sans Mono CJK SC"',// Linux 中文等宽
-            '"Consolas"',             // Windows fallback
-            '"Monaco"',               // macOS fallback
-            'Courier New'               // 系统 fallback
-          ].join(', '),
-          fontLigatures: true,
-          // 增加这些配置改善中文显示
-          wordWrap: 'on',
-          wordWrapColumn: 120,
-          renderWhitespace: 'selection',
-          unicodeHighlight: {
-            ambiguousCharacters: false, // 避免中文字符被高亮为可疑字符
-            invisibleCharacters: false
-          },
-          fixedOverflowWidgets: true,
-          suggestOnTriggerCharacters: true,
-          acceptSuggestionOnEnter: 'on',
-          tabCompletion: 'on',
-          quickSuggestions: {
-            other: true,
-            comments: false,
-            strings: true
-          },
-          suggestSelection: 'first',
-          // 建议窗口相关配置
-          suggest: {
-            showIcons: true,
-            showSnippets: true,
-            showWords: true,
-            showColors: true,
-            showFiles: true,
-            showReferences: true,
-            showFolders: true,
-            showTypeParameters: true,
-            showIssues: true,
-            showUsers: true,
-            showValues: true,
-            showMethods: true,
-            showFunctions: true,
-            showConstructors: true,
-            showFields: true,
-            showVariables: true,
-            showClasses: true,
-            showStructs: true,
-            showInterfaces: true,
-            showModules: true,
-            showProperties: true,
-            showEvents: true,
-            showOperators: true,
-            showUnits: true,
-            showKeywords: true,
-            showStatusBar: true,
-            // 扩展建议窗口配置
-            insertMode: 'insert',
-            filterGraceful: true,
-            snippetsPreventQuickSuggestions: false,
-            localityBonus: true,
-            shareSuggestSelections: false,
-            selectionMode: 'always'
-          },
-          // 提示框宽度相关
-          hover: {
-            enabled: true,
-            delay: 300,
-            sticky: true
+    <>
+      <div className="h-full w-full overflow-hidden border rounded-md">
+        <style jsx global>{`
+          /* 自定义Monaco Editor建议窗口样式 */
+          .monaco-editor .suggest-widget {
+            width: 450px !important;
+            min-width: 400px !important;
           }
-        }}
-      />
-    </div>
+          
+          .monaco-editor .suggest-widget .monaco-list .monaco-list-row {
+            height: auto !important;
+            min-height: 22px !important;
+          }
+          
+          .monaco-editor .suggest-widget .monaco-list .monaco-list-row .contents {
+            padding: 4px 8px !important;
+          }
+          
+          .monaco-editor .suggest-widget .monaco-list .monaco-list-row .label {
+            max-width: none !important;
+            white-space: nowrap !important;
+          }
+          
+          .monaco-editor .suggest-widget .monaco-list .monaco-list-row .details {
+            max-width: none !important;
+            white-space: nowrap !important;
+            overflow: visible !important;
+          }
+          
+          .monaco-editor .suggest-widget .docs {
+            width: 300px !important;
+            min-width: 250px !important;
+          }
+          
+          /* 确保建议窗口不被截断 */
+          .monaco-editor .suggest-widget.docs-side {
+            width: 750px !important;
+          }
+        `}</style>
+        <Editor
+          height="100%"
+          language="sql"
+          value={value}
+          onChange={(val) => onChange(val || '')}
+          onMount={handleEditorDidMount}
+          theme={resolvedTheme === 'dark' ? 'vs-dark' : 'vs'}
+          options={{
+            minimap: { enabled: false },
+            scrollBeyondLastLine: false,
+            wrappingIndent: 'indent',
+            automaticLayout: true,
+            tabSize: 2,
+            readOnly,
+            fontSize: 14,
+            fontFamily: [
+              '"JetBrainsMono"',
+              '"Source Code Pro"',      // 更好的中文兼容性
+              '"Microsoft YaHei Mono"', // Windows 中文等宽
+              '"PingFang SC"',          // macOS 中文
+              '"Noto Sans Mono CJK SC"',// Linux 中文等宽
+              '"Consolas"',             // Windows fallback
+              '"Monaco"',               // macOS fallback
+              'Courier New'               // 系统 fallback
+            ].join(', '),
+            fontLigatures: true,
+            // 增加这些配置改善中文显示
+            wordWrap: 'on',
+            wordWrapColumn: 120,
+            renderWhitespace: 'selection',
+            unicodeHighlight: {
+              ambiguousCharacters: false, // 避免中文字符被高亮为可疑字符
+              invisibleCharacters: false
+            },
+            fixedOverflowWidgets: true,
+            suggestOnTriggerCharacters: true,
+            acceptSuggestionOnEnter: 'on',
+            tabCompletion: 'on',
+            quickSuggestions: {
+              other: true,
+              comments: false,
+              strings: true
+            },
+            suggestSelection: 'first',
+            // 建议窗口相关配置
+            suggest: {
+              showIcons: true,
+              showSnippets: true,
+              showWords: true,
+              showColors: true,
+              showFiles: true,
+              showReferences: true,
+              showFolders: true,
+              showTypeParameters: true,
+              showIssues: true,
+              showUsers: true,
+              showValues: true,
+              showMethods: true,
+              showFunctions: true,
+              showConstructors: true,
+              showFields: true,
+              showVariables: true,
+              showClasses: true,
+              showStructs: true,
+              showInterfaces: true,
+              showModules: true,
+              showProperties: true,
+              showEvents: true,
+              showOperators: true,
+              showUnits: true,
+              showKeywords: true,
+              showStatusBar: true,
+              // 扩展建议窗口配置
+              insertMode: 'insert',
+              filterGraceful: true,
+              snippetsPreventQuickSuggestions: false,
+              localityBonus: true,
+              shareSuggestSelections: false,
+              selectionMode: 'always'
+            },
+            // 提示框宽度相关
+            hover: {
+              enabled: true,
+              delay: 300,
+              sticky: true
+            }
+          }}
+        />
+      </div>
+
+      {/* 保存到脚本对话框 */}
+      <Dialog open={isSaveDialogOpen} onOpenChange={setIsSaveDialogOpen}>
+        <DialogContent className="sm:max-w-[600px] max-h-[80vh] overflow-hidden flex flex-col">
+          <DialogHeader>
+            <DialogTitle>保存SQL脚本</DialogTitle>
+            {/* <DialogDescription>
+              将当前SQL内容保存为脚本以便后续重用
+            </DialogDescription> */}
+          </DialogHeader>
+          
+          <div className="grid gap-4 py-4 flex-1 overflow-auto">
+            <div className="grid grid-cols-4 items-center gap-4">
+              <label htmlFor="script-name" className="text-right">
+                脚本名称
+              </label>
+              <Input
+                id="script-name"
+                value={saveDialogScript.name || ''}
+                onChange={(e) => setSaveDialogScript({...saveDialogScript, name: e.target.value})}
+                className="col-span-3"
+                placeholder="请输入脚本名称"
+              />
+            </div>
+            
+            <div className="grid grid-cols-4 items-center gap-4">
+              <label htmlFor="script-group" className="text-right">
+                脚本分组
+              </label>
+              <Select
+                value={saveDialogScript.groupName || '默认分组'}
+                onValueChange={(value) => setSaveDialogScript({...saveDialogScript, groupName: value})}
+              >
+                <SelectTrigger className="col-span-3">
+                  <SelectValue placeholder="选择分组" />
+                </SelectTrigger>
+                <SelectContent>
+                  {groups.map(group => (
+                    <SelectItem key={group} value={group}>
+                      {group}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            
+            <div className="grid grid-cols-4 items-start gap-4">
+              <label htmlFor="script-description" className="text-right pt-2">
+                脚本描述
+              </label>
+              <Textarea
+                id="script-description"
+                value={saveDialogScript.description || ''}
+                onChange={(e) => setSaveDialogScript({...saveDialogScript, description: e.target.value})}
+                className="col-span-3"
+                rows={2}
+                placeholder="请输入脚本描述（可选）"
+              />
+            </div>
+            
+            <div className="grid grid-cols-4 items-start gap-4">
+              <label htmlFor="script-content" className="text-right pt-2">
+                SQL内容
+              </label>
+              <Textarea
+                id="script-content"
+                value={saveDialogScript.content || ''}
+                onChange={(e) => setSaveDialogScript({...saveDialogScript, content: e.target.value})}
+                className="col-span-3 font-mono text-sm"
+                rows={8}
+                placeholder="SQL脚本内容"
+              />
+            </div>
+          </div>
+          
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsSaveDialogOpen(false)}>
+              取消
+            </Button>
+            <Button onClick={saveScriptToStorage}>
+              <SaveIcon className="h-4 w-4 mr-2" />
+              保存脚本
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   )
 })
 
