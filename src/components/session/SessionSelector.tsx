@@ -106,17 +106,49 @@ export default function SessionSelector() {
     return `${activeSession.connectionName} - ${activeSession.database}`
   }, [activeSession])
 
-  // 新增：检查预加载状态
-  const checkPreloadStatus = useCallback(() => {
+  // 新增：检查预加载状态（增强版 + 持久化统计）
+  const checkPreloadStatus = useCallback(async () => {
     if (!activeSession) return
 
     const status = SqlCacheManager.getPreloadStatus(activeSession.id)
-    const stats = SqlCacheManager.getStats()
+    const stats = await SqlCacheManager.getStats()
+
+    // 格式化时间
+    const formatTime = (ms: number) => {
+      if (ms < 60000) return `${Math.round(ms / 1000)}秒`
+      if (ms < 3600000) return `${Math.round(ms / 60000)}分钟`
+      return `${Math.round(ms / 3600000)}小时`
+    }
+
+    // 格式化文件大小
+    const formatSize = (sizeMB: number) => {
+      if (sizeMB < 1) return `${Math.round(sizeMB * 1024)}KB`
+      if (sizeMB < 1024) return `${Math.round(sizeMB)}MB`
+      return `${Math.round(sizeMB / 1024 * 10) / 10}GB`
+    }
+
+    const statusText = status.isLoaded ? '已完成' : (status.isLoading ? '加载中' : '未加载')
+    const cacheAgeText = status.lastUpdate ? `缓存时长: ${formatTime(status.cacheAge)}` : ''
+    const expireText = status.willExpireIn > 0 ? `将在 ${formatTime(status.willExpireIn)} 后过期` : ''
+    const autoRefreshText = status.autoRefreshEnabled ? '自动刷新: 开启' : '自动刷新: 关闭'
+    const persistentText = `IndexedDB: ${stats.persistent.totalProcedures}个存储过程 (${formatSize(stats.persistent.dbSizeMB)})`
+    const capacityText = `容量: ${stats.persistent.usagePercentage}% (${formatSize(stats.persistent.dbSizeMB)}/${formatSize(stats.persistent.maxSizeMB)})`
+    const sessionsText = `${stats.persistent.sessions}个会话缓存`
 
     toast.success(
-      `预加载状态: ${status.isLoaded ? '已完成' : (status.isLoading ? '加载中' : '未加载')} | ` +
-      `存储过程数: ${status.procedureCount} | ` +
-      `缓存会话数: ${stats.preloadedSessions.length}`
+      `预加载状态: ${statusText}`,
+      { 
+        description: [
+          `内存: ${status.procedureCount}个存储过程`,
+          persistentText,
+          capacityText,
+          sessionsText,
+          cacheAgeText,
+          expireText,
+          autoRefreshText
+        ].filter(Boolean).join(' | '),
+        duration: 6000
+      }
     )
   }, [activeSession, toast])
 
@@ -128,11 +160,46 @@ export default function SessionSelector() {
     const success = await SqlCacheManager.refreshPreloadCache(activeSession.id)
 
     if (success) {
-      toast.success('存储过程预加载刷新成功')
+      console.log('存储过程预加载刷新成功')
     } else {
-      toast.error('存储过程预加载刷新失败')
+      console.error('存储过程预加载刷新失败')
     }
   }, [activeSession, toast])
+
+  // 新增：显示容量管理信息
+  const showCapacityInfo = useCallback(async () => {
+    const stats = await SqlCacheManager.getStats()
+    const sessions = stats.persistent.sessionDetails
+
+    if (sessions.length === 0) {
+      toast.info('当前没有缓存的会话')
+      return
+    }
+
+    // 格式化时间
+    const formatDate = (date: Date) => {
+      const now = new Date()
+      const diff = now.getTime() - date.getTime()
+      const days = Math.floor(diff / (24 * 60 * 60 * 1000))
+      const hours = Math.floor((diff % (24 * 60 * 60 * 1000)) / (60 * 60 * 1000))
+      
+      if (days > 0) return `${days}天前`
+      if (hours > 0) return `${hours}小时前`
+      return '刚刚访问'
+    }
+
+    const sessionInfo = sessions.map(s => 
+      `${s.sessionId}: ${s.sizeMB.toFixed(1)}MB (${s.procedureCount}个SP, ${formatDate(s.lastAccessed)})`
+    ).join('\n')
+
+    toast.info(
+      `缓存容量管理 (${stats.persistent.usagePercentage}%已使用)`,
+      { 
+        description: `最大${stats.persistent.maxSizeMB}MB, 已用${stats.persistent.dbSizeMB.toFixed(1)}MB\n\n会话详情:\n${sessionInfo}`,
+        duration: 8000
+      }
+    )
+  }, [toast])
 
   if (isInitializing) {
     return (
@@ -209,9 +276,17 @@ export default function SessionSelector() {
         variant="outline"
         size="sm"
         onClick={refreshPreload}
-        title="刷新预加载"
+        title="手动刷新缓存存储过程"
       >
         <RefreshCw className="h-3 w-3" />
+      </Button>
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={showCapacityInfo}
+        title="容量管理信息"
+      >
+        <span className="text-xs">💾</span>
       </Button>
 
 

@@ -24,6 +24,10 @@ const COMPLETION_ITEM_KIND = {
 
 import { debounce } from 'lodash'
 import { search_column_details, search_table_names, search_procedure_suggestionitems } from '@/lib/api'
+import { persistentCache } from '@/lib/persistentCache'
+import { useToast } from '@/hooks/use-toast'
+
+const {toast} = useToast();
 
 // 缓存机制
 interface CacheEntry {
@@ -114,11 +118,57 @@ interface PreloadedProcedureCache {
     procedures: any[]
     timestamp: number
     isLoading: boolean
+    lastRefreshAttempt?: number  // 新增：最后一次刷新尝试时间
+    autoRefreshEnabled?: boolean // 新增：是否启用自动刷新
   }
 }
 
 const preloadedProcedureCache: PreloadedProcedureCache = {}
-const PRELOAD_CACHE_TTL = 300000 // 5分钟缓存
+const PRELOAD_CACHE_TTL = 1800000 // 30分钟缓存（从5分钟延长）
+const AUTO_REFRESH_THRESHOLD = 1200000 // 20分钟后开始后台自动刷新
+const REFRESH_COOLDOWN = 300000 // 5分钟刷新冷却时间
+
+// 新增：后台自动刷新定时器
+let autoRefreshTimer: NodeJS.Timeout | null = null
+
+// 启动后台自动刷新机制
+function startAutoRefresh(): void {
+  if (autoRefreshTimer) return
+  
+  autoRefreshTimer = setInterval(() => {
+    const now = Date.now()
+    
+    Object.entries(preloadedProcedureCache).forEach(([sessionId, cache]) => {
+      // 跳过正在加载或未启用自动刷新的会话
+      if (cache.isLoading || !cache.autoRefreshEnabled) return
+      
+      const timeSinceLastUpdate = now - cache.timestamp
+      const timeSinceLastRefresh = now - (cache.lastRefreshAttempt || 0)
+      
+      // 如果缓存快过期（超过20分钟）且距离上次刷新尝试超过5分钟
+      if (timeSinceLastUpdate > AUTO_REFRESH_THRESHOLD && 
+          timeSinceLastRefresh > REFRESH_COOLDOWN) {
+        console.log(`后台自动刷新会话 ${sessionId} 的存储过程缓存`)
+        
+        // 记录刷新尝试时间
+        cache.lastRefreshAttempt = now
+        
+        // 异步刷新，不阻塞
+        preloadProcedures(sessionId).catch(error => {
+          console.warn(`后台自动刷新失败:`, error)
+        })
+      }
+    })
+  }, 60000) // 每分钟检查一次
+}
+
+// 停止后台自动刷新机制
+function stopAutoRefresh(): void {
+  if (autoRefreshTimer) {
+    clearInterval(autoRefreshTimer)
+    autoRefreshTimer = null
+  }
+}
 
 // 防抖的存储过程搜索函数
 const debouncedProcedureSearch = debounce(
@@ -144,12 +194,17 @@ const debouncedProcedureSearch = debounce(
   500 // 500ms 防抖延迟
 )
 
-// 预加载存储过程列表（在会话建立或空闲时调用）
-export async function preloadProcedures(sessionId: string): Promise<void> {
+// 预加载存储过程列表（增强版：支持持久化和增量更新）
+export async function preloadProcedures(sessionId: string, forceFullReload = false): Promise<void> {
   const cache = preloadedProcedureCache[sessionId]
   
-  // 如果正在加载或缓存仍然有效，跳过
-  if (cache && (cache.isLoading || (Date.now() - cache.timestamp < PRELOAD_CACHE_TTL))) {
+  // 如果正在加载，跳过
+  if (cache?.isLoading) {
+    return
+  }
+  
+  // 如果缓存仍然有效且不是手动刷新，跳过
+  if (!forceFullReload && cache && (Date.now() - cache.timestamp < PRELOAD_CACHE_TTL)) {
     return
   }
   
@@ -157,31 +212,170 @@ export async function preloadProcedures(sessionId: string): Promise<void> {
   preloadedProcedureCache[sessionId] = {
     procedures: cache?.procedures || [],
     timestamp: cache?.timestamp || 0,
-    isLoading: true
+    isLoading: true,
+    lastRefreshAttempt: Date.now(),
+    autoRefreshEnabled: true
   }
   
   try {
     console.log(`预加载会话 ${sessionId} 的存储过程列表...`)
-    // 获取所有存储过程（空关键字表示获取全部）
-    const allProcedures = await search_procedure_suggestionitems(sessionId, '')
     
-    preloadedProcedureCache[sessionId] = {
-      procedures: allProcedures,
-      timestamp: Date.now(),
-      isLoading: false
+    // 检查是否有持久化缓存可以使用
+    const hasRecentCache = !forceFullReload && await persistentCache.shouldPerformIncrementalUpdate(sessionId)
+    
+    if (hasRecentCache) {
+      console.log(`会话 ${sessionId} 检测到近期持久化缓存，尝试从IndexedDB恢复...`)
+      
+      // 从持久化缓存快速恢复
+      const cachedProcedures = await persistentCache.searchProcedures(sessionId, '', 100000)
+      
+      if (cachedProcedures.length > 0) {
+        console.log(`从IndexedDB恢复了 ${cachedProcedures.length} 个存储过程`)
+        
+        // 立即更新内存缓存
+        preloadedProcedureCache[sessionId] = {
+          procedures: cachedProcedures,
+          timestamp: Date.now(),
+          isLoading: false,
+          lastRefreshAttempt: Date.now(),
+          autoRefreshEnabled: true
+        }
+        
+        // 后台进行增量更新检查
+        setTimeout(async () => {
+          try {
+            console.log(`后台进行增量更新检查: ${sessionId}`)
+            await performIncrementalUpdate(sessionId)
+          } catch (error) {
+            console.warn('后台增量更新失败:', error)
+          }
+        }, 1000) // 1秒后开始增量更新
+        
+        startAutoRefresh()
+        return
+      }
     }
     
-    console.log(`成功预加载 ${allProcedures.length} 个存储过程`)
+    // 全量加载（首次或强制刷新）
+    console.log(`进行全量预加载: ${sessionId}`)
+    const allProcedures = await search_procedure_suggestionitems(sessionId, '')
+    
+    // 转换格式并生成校验和
+    const proceduresWithMetadata = allProcedures.map(proc => ({
+      id: `${proc.schema_name}.${proc.name}`,
+      name: proc.name,
+      schema_name: proc.schema_name,
+      parameters: proc.parameters || [],
+      description: proc.full_name || '', // 使用full_name作为描述
+      definition: proc.execute_template || '', // 使用执行模板作为定义
+      lastModified: new Date().toISOString(),
+      checksum: generateChecksumForProcedure(proc)
+    }))
+    
+    // 更新内存缓存
+    preloadedProcedureCache[sessionId] = {
+      procedures: proceduresWithMetadata,
+      timestamp: Date.now(),
+      isLoading: false,
+      lastRefreshAttempt: Date.now(),
+      autoRefreshEnabled: true
+    }
+    
+    
+    // 异步保存到持久化缓存
+    setTimeout(async () => {
+      try {
+        const result = await persistentCache.performIncrementalUpdate(
+          sessionId,
+          proceduresWithMetadata,
+          (progress) => {
+            console.log(`持久化进度: ${progress.action} ${progress.current}/${progress.total}`)
+          }
+        )
+        console.log(`持久化完成: 新增${result.added}, 更新${result.updated}, 删除${result.deleted}`)
+        
+        toast.success(`当前会话存储过程定义预热完成！`)
+      } catch (error) {
+        console.warn('持久化保存失败:', error)
+      }
+    }, 100)
+    
+    console.log(`成功预加载 ${proceduresWithMetadata.length} 个存储过程`)
+    startAutoRefresh()
+    
   } catch (error) {
     console.error('预加载存储过程失败:', error)
     // 保持旧数据，但标记为未加载状态
     if (preloadedProcedureCache[sessionId]) {
       preloadedProcedureCache[sessionId].isLoading = false
+      preloadedProcedureCache[sessionId].lastRefreshAttempt = Date.now()
     }
   }
 }
 
-// 同步过滤存储过程建议
+// 增量更新函数
+async function performIncrementalUpdate(sessionId: string): Promise<void> {
+  try {
+    console.log(`开始增量更新: ${sessionId}`)
+    
+    // 获取最新的存储过程列表
+    const latestProcedures = await search_procedure_suggestionitems(sessionId, '')
+    
+    // 转换格式
+    const proceduresWithMetadata = latestProcedures.map(proc => ({
+      id: `${proc.schema_name}.${proc.name}`,
+      name: proc.name,
+      schema_name: proc.schema_name,
+      parameters: proc.parameters || [],
+      description: proc.full_name || '', // 使用full_name作为描述
+      definition: proc.execute_template || '', // 使用执行模板作为定义
+      lastModified: new Date().toISOString(),
+      checksum: generateChecksumForProcedure(proc)
+    }))
+    
+    // 执行增量更新
+    const result = await persistentCache.performIncrementalUpdate(
+      sessionId,
+      proceduresWithMetadata,
+      (progress) => {
+        console.log(`增量更新进度: ${progress.action} ${progress.current}/${progress.total}`)
+      }
+    )
+    
+    console.log(`增量更新完成: 新增${result.added}, 更新${result.updated}, 删除${result.deleted}`)
+    toast.success(`存储过程缓存增量更新完成: 新增${result.added}, 更新${result.updated}, 删除${result.deleted}`)
+
+    // 如果有变化，更新内存缓存
+    if (result.added > 0 || result.updated > 0 || result.deleted > 0) {
+      preloadedProcedureCache[sessionId] = {
+        procedures: proceduresWithMetadata,
+        timestamp: Date.now(),
+        isLoading: false,
+        lastRefreshAttempt: Date.now(),
+        autoRefreshEnabled: true
+      }
+      
+      console.log(`内存缓存已更新，共 ${proceduresWithMetadata.length} 个存储过程`)
+    }
+    
+  } catch (error) {
+    console.error('增量更新失败:', error)
+  }
+}
+
+// 生成存储过程校验和
+function generateChecksumForProcedure(proc: any): string {
+  const content = `${proc.name}${proc.schema_name}${proc.execute_template || ''}${JSON.stringify(proc.parameters || [])}`
+  let hash = 0
+  for (let i = 0; i < content.length; i++) {
+    const char = content.charCodeAt(i)
+    hash = ((hash << 5) - hash) + char
+    hash = hash & hash
+  }
+  return hash.toString(36)
+}
+
+// 同步过滤存储过程建议（优化缓存过期处理）
 function filterProceduresSynchronously(sessionId: string, keyword: string): any[] {
   const cache = preloadedProcedureCache[sessionId]
   
@@ -193,10 +387,17 @@ function filterProceduresSynchronously(sessionId: string, keyword: string): any[
     return []
   }
   
-  // 检查缓存是否过期
-  if (Date.now() - cache.timestamp > PRELOAD_CACHE_TTL) {
-    // 后台刷新缓存，但返回旧数据
-    preloadProcedures(sessionId).catch(console.error)
+  const now = Date.now()
+  const timeSinceLastUpdate = now - cache.timestamp
+  
+  // 检查缓存是否即将过期（提前5分钟开始后台刷新）
+  if (timeSinceLastUpdate > (PRELOAD_CACHE_TTL - 300000)) {
+    // 后台刷新缓存，但继续返回当前数据
+    const timeSinceLastRefresh = now - (cache.lastRefreshAttempt || 0)
+    if (timeSinceLastRefresh > REFRESH_COOLDOWN) {
+      console.log('缓存即将过期，触发后台刷新')
+      preloadProcedures(sessionId).catch(console.error)
+    }
   }
   
   const procedures = cache.procedures || []
@@ -1070,6 +1271,8 @@ export const SqlCacheManager = {
     Object.keys(preloadedProcedureCache).forEach(key => {
       delete preloadedProcedureCache[key]
     })
+    // 停止自动刷新
+    stopAutoRefresh()
     console.log('已清除所有SQL缓存、存储过程建议缓存和预加载缓存')
   },
   
@@ -1089,24 +1292,58 @@ export const SqlCacheManager = {
     console.log(`已清除会话 ${sessionId} 的所有缓存`)
   },
   
-  // 获取缓存统计信息
-  getStats(): { 
+  // 获取缓存统计信息（增强版：包含持久化统计）
+  async getStats(): Promise<{ 
     size: number, 
     sessions: Set<string>, 
     procedureCacheSize: number,
     preloadedSessions: string[],
-    preloadedTotal: number
-  } {
+    preloadedTotal: number,
+    autoRefreshActive: boolean,
+    persistent: {
+      totalProcedures: number,
+      sessions: number,
+      dbSizeMB: number,
+      maxSizeMB: number,
+      usagePercentage: number,
+      lastUpdated: Date,
+      sessionDetails: Array<{
+        sessionId: string,
+        sizeMB: number,
+        lastAccessed: Date,
+        procedureCount: number
+      }>
+    }
+  }> {
     const stats = sqlCache.getStats()
     const preloadedSessions = Object.keys(preloadedProcedureCache)
     const preloadedTotal = Object.values(preloadedProcedureCache)
       .reduce((total, cache) => total + cache.procedures.length, 0)
     
+    // 获取持久化缓存统计
+    let persistentStats
+    try {
+      persistentStats = await persistentCache.getStats()
+    } catch (error) {
+      console.warn('获取持久化缓存统计失败:', error)
+      persistentStats = {
+        totalProcedures: 0,
+        sessions: 0,
+        dbSizeMB: 0,
+        maxSizeMB: 100,
+        usagePercentage: 0,
+        lastUpdated: new Date(),
+        sessionDetails: []
+      }
+    }
+    
     return {
       ...stats,
       procedureCacheSize: Object.keys(procedureSuggestionCache).length,
       preloadedSessions,
-      preloadedTotal
+      preloadedTotal,
+      autoRefreshActive: autoRefreshTimer !== null,
+      persistent: persistentStats
     }
   },
   
@@ -1167,38 +1404,87 @@ export const SqlCacheManager = {
       Object.keys(preloadedProcedureCache).forEach(key => {
         delete preloadedProcedureCache[key]
       })
-      console.log('已清除所有预加载缓存')
+      stopAutoRefresh()
+      console.log('已清除所有预加载缓存并停止自动刷新')
     }
   },
   
-  // 新增：检查预加载状态
+  // 新增：检查预加载状态（增强版）
   getPreloadStatus(sessionId: string): { 
     isLoaded: boolean, 
     isLoading: boolean, 
     procedureCount: number, 
-    lastUpdate: Date | null 
+    lastUpdate: Date | null,
+    cacheAge: number,
+    willExpireIn: number,
+    autoRefreshEnabled: boolean
   } {
     const cache = preloadedProcedureCache[sessionId]
     if (!cache) {
-      return { isLoaded: false, isLoading: false, procedureCount: 0, lastUpdate: null }
+      return { 
+        isLoaded: false, 
+        isLoading: false, 
+        procedureCount: 0, 
+        lastUpdate: null,
+        cacheAge: 0,
+        willExpireIn: 0,
+        autoRefreshEnabled: false
+      }
     }
+    
+    const now = Date.now()
+    const cacheAge = now - cache.timestamp
+    const willExpireIn = Math.max(0, PRELOAD_CACHE_TTL - cacheAge)
     
     return {
       isLoaded: !cache.isLoading && cache.procedures.length > 0,
       isLoading: cache.isLoading,
       procedureCount: cache.procedures.length,
-      lastUpdate: cache.timestamp > 0 ? new Date(cache.timestamp) : null
+      lastUpdate: cache.timestamp > 0 ? new Date(cache.timestamp) : null,
+      cacheAge,
+      willExpireIn,
+      autoRefreshEnabled: cache.autoRefreshEnabled || false
     }
   },
   
-  // 新增：强制刷新预加载缓存
+  // 新增：强制刷新预加载缓存（增强版）
   async refreshPreloadCache(sessionId: string): Promise<boolean> {
+    // 禁用自动刷新
+    if (preloadedProcedureCache[sessionId]) {
+      preloadedProcedureCache[sessionId].autoRefreshEnabled = false
+    }
+    
     // 清除现有缓存
     if (preloadedProcedureCache[sessionId]) {
       delete preloadedProcedureCache[sessionId]
     }
     
     // 重新预加载
+    const success = await this.preloadProceduresForSession(sessionId)
+    
+    // 重新启用自动刷新
+    if (preloadedProcedureCache[sessionId]) {
+      preloadedProcedureCache[sessionId].autoRefreshEnabled = true
+    }
+    
+    return success
+  },
+  
+  // 新增：启用/禁用自动刷新
+  setAutoRefresh(sessionId: string, enabled: boolean): void {
+    if (preloadedProcedureCache[sessionId]) {
+      preloadedProcedureCache[sessionId].autoRefreshEnabled = enabled
+      console.log(`会话 ${sessionId} 的自动刷新已${enabled ? '启用' : '禁用'}`)
+      
+      if (enabled) {
+        startAutoRefresh()
+      }
+    }
+  },
+  
+  // 新增：预热缓存（仅为活动会话预加载）
+  async warmupActiveSession(sessionId: string): Promise<boolean> {
+    console.log(`预热活动会话缓存: ${sessionId}`)
     return await this.preloadProceduresForSession(sessionId)
   }
 } 

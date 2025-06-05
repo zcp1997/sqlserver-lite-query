@@ -159,18 +159,32 @@ export const SessionProvider = ({ children }: { children: ReactNode }) => {
     setSessions(updatedSessions)
     setActiveSessionState(session)
 
-    // 确保新活动会话的存储过程已预加载（提高自动补全性能）
+    // 确保新活动会话的存储过程已预加载（按需加载，提高响应速度）
     const status = SqlCacheManager.getPreloadStatus(session.id)
     if (!status.isLoaded && !status.isLoading) {
       console.log(`为新活动会话 ${session.connectionName} 触发存储过程预加载`)
-      toast.promise(
-        SqlCacheManager.preloadProceduresForSession(session.id),
-        {
-          loading: `正在为 ${session.connectionName} 预加载存储过程...`,
-          success: `${session.connectionName} 存储过程预加载完成`,
-          error: `${session.connectionName} 存储过程预加载失败`
+      // 静默预加载，避免频繁切换时的toast干扰
+      SqlCacheManager.warmupActiveSession(session.id).then((success) => {
+        if (success) {
+          console.log(`会话 ${session.connectionName} 预加载完成`)
+          // 仅在成功时显示小提示
+          toast.success(`${session.connectionName} 自动补全已就绪`, { duration: 2000 })
+        } else {
+          console.warn(`会话 ${session.connectionName} 预加载失败`)
+          toast.warning(`${session.connectionName} 自动补全加载失败，将在输入时动态加载`, { duration: 2500 })
         }
-      )
+      }).catch(console.error)
+    } else if (status.isLoaded) {
+      // 如果已经有缓存，检查是否需要后台刷新
+      const now = Date.now()
+      const lastUpdate = status.lastUpdate?.getTime() || 0
+      const cacheAge = now - lastUpdate
+      
+      // 如果缓存超过20分钟，触发后台刷新
+      if (cacheAge > 1200000) {
+        console.log(`会话 ${session.connectionName} 缓存较旧，触发后台刷新`)
+        SqlCacheManager.preloadProceduresForSession(session.id).catch(console.error)
+      }
     }
 
     // 更新当前工作区的连接信息
@@ -285,95 +299,17 @@ export const SessionProvider = ({ children }: { children: ReactNode }) => {
         setSessions(withFlags)
         setActiveSessionState(active)
         
-        // 后台预加载所有会话的存储过程（提高自动补全性能）
-        if (newSessions.length > 0) {
-          // 显示开始预加载的toast
-          const loadingToast = toast.loading(
-            `正在预加载 ${newSessions.length} 个会话的存储过程信息...`,
-            { duration: Infinity }
-          )
-          
-          console.log('开始预加载存储过程，loading toast ID:', loadingToast)
-          
-          // 预加载所有会话
-          const preloadPromises = newSessions.map(async (session) => {
-            try {
-              const success = await SqlCacheManager.preloadProceduresForSession(session.id)
-              console.log(`会话 ${session.connectionName} 预加载完成，结果:`, success)
-              return { session, success }
-            } catch (error) {
-              console.warn(`会话 ${session.connectionName} 存储过程预加载失败:`, error)
-              return { session, success: false }
+        // 优化：仅为活动会话预加载存储过程，提高启动速度
+        if (active) {
+          console.log(`为活动会话 ${active.connectionName} 预热缓存`)
+          // 静默预热活动会话，不显示toast（避免干扰用户）
+          SqlCacheManager.warmupActiveSession(active.id).then((success) => {
+            if (success) {
+              console.log(`活动会话 ${active.connectionName} 预热完成`)
+            } else {
+              console.warn(`活动会话 ${active.connectionName} 预热失败`)
             }
-          })
-          
-          // 设置超时保护，最多等待60秒
-          const timeoutPromise = new Promise((_, reject) => {
-            setTimeout(() => reject(new Error('预加载超时')), 60 * 1000)
-          })
-          
-          // 执行预加载并处理结果
-          Promise.race([
-            Promise.all(preloadPromises),
-            timeoutPromise
-          ]).then((results) => {
-            console.log('所有预加载完成，准备dismiss toast，结果:', results)
-            
-            // 立即清除loading toast
-            toast.dismiss(String(loadingToast))
-            toast.dismiss() // 额外保险，清除所有toast
-            
-            console.log('已调用toast.dismiss')
-            
-            // 延迟一下再显示结果toast，确保loading toast已经清除
-            setTimeout(() => {
-              if (Array.isArray(results)) {
-                const successCount = results.filter(r => r.success).length
-                const totalCount = results.length
-                
-                console.log(`预加载结果统计: ${successCount}/${totalCount}`)
-                
-                if (successCount === totalCount) {
-                  toast.success(
-                    `所有会话的存储过程预加载完成`,
-                    { description: `${successCount} 个会话的自动补全性能已优化`, duration: 2000 }
-                  )
-                } else if (successCount > 0) {
-                  toast.warning(
-                    `部分会话预加载完成`,
-                    { description: `${successCount}/${totalCount} 个会话预加载成功`, duration: 2500 }
-                  )
-                } else {
-                  toast.error(
-                    `存储过程预加载失败`,
-                    { description: '将在使用时动态加载', duration: 2500 }
-                  )
-                }
-              }
-            }, 100) // 100ms延迟确保loading toast已清除
-            
-          }).catch((error) => {
-            console.error('预加载操作出现错误或超时:', error)
-            
-            // 立即清除loading toast
-            toast.dismiss(String(loadingToast))
-            toast.dismiss() // 额外保险
-            
-            // 延迟显示错误信息
-            setTimeout(() => {
-              if (error.message === '预加载超时') {
-                toast.warning(
-                  `存储过程预加载超时`,
-                  { description: '部分数据可能仍在后台加载，将在使用时动态补全', duration: 3000 }
-                )
-              } else {
-                toast.error(
-                  `存储过程预加载失败`,
-                  { description: '将在使用时动态加载', duration: 2500 }
-                )
-              }
-            }, 100)
-          })
+          }).catch(console.error)
         }
         
         // 如果有活动会话，确保其对应的工作区存在
