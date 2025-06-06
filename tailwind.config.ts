@@ -50,6 +50,7 @@ export default {
       fontFamily: {
         sans: ["var(--font-sans)"],
         jetbrains: ["JetBrainsMono", "monospace"],
+        inter: ["var(--font-inter)"],
       },
     },
   },// eslint-disable-next-line @typescript-eslint/no-require-imports

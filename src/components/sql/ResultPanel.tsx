@@ -29,7 +29,6 @@ import {
   SettingsIcon,
   ZapIcon,
   RulerIcon,
-  MoreVerticalIcon
 } from 'lucide-react'
 import { useTheme } from "next-themes"
 
