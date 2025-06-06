@@ -18,7 +18,6 @@ import { Textarea } from '@/components/ui/textarea'
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -71,6 +70,7 @@ interface SqlEditorProps {
   onChange: (value: string) => void
   readOnly?: boolean
   onSelectionChange?: (selectedText: string) => void
+  fontSize?: number // 新增：字体大小
 }
 
 // 暴露给父组件的方法
@@ -97,7 +97,8 @@ const SqlEditor = forwardRef<SqlEditorRef, SqlEditorProps>(({
   value,
   onChange,
   readOnly = false,
-  onSelectionChange
+  onSelectionChange,
+  fontSize = 14 // 新增：字体大小，默认14
 }, ref) => {
   const editorRef = useRef<any>(null)
   const monacoRef = useRef<MonacoReact | null>(null)
@@ -561,7 +562,7 @@ const SqlEditor = forwardRef<SqlEditorRef, SqlEditorProps>(({
             automaticLayout: true,
             tabSize: 2,
             readOnly,
-            fontSize: 13,
+            fontSize: fontSize,
             fontFamily: [
               '"JetBrainsMono"',
               '"Source Code Pro"',      // 更好的中文兼容性

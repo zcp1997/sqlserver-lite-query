@@ -31,6 +31,7 @@ import { v4 as uuidv4 } from 'uuid'
 import { useToast } from "@/hooks/use-toast"
 
 const CONNECTIONS_STORAGE_KEY = 'sqlserver-connections'
+const FONT_SIZE_STORAGE_KEY = 'sqlserver-font-size'
 
 export default function SqlWorkbenchPage() {
   // 使用 Session context
@@ -72,6 +73,9 @@ export default function SqlWorkbenchPage() {
   // 新增：存储选中文本的状态
   const [selectedText, setSelectedText] = useState<string>("")
 
+  // 新增：字体大小状态管理
+  const [fontSize, setFontSize] = useState<number>(14)
+
   // 新增：QueryWorkspace的引用
   const queryWorkspaceRef = useRef<QueryWorkspaceRef>(null)
 
@@ -86,6 +90,15 @@ export default function SqlWorkbenchPage() {
       if (!connections || JSON.parse(connections).length === 0) {
         setShowInitialSetup(true)
         setConnectionDialogOpen(true)
+      }
+
+      // 加载保存的字体大小
+      const savedFontSize = localStorage.getItem(FONT_SIZE_STORAGE_KEY)
+      if (savedFontSize) {
+        const size = parseInt(savedFontSize, 10)
+        if (size >= 10 && size <= 20) {
+          setFontSize(size)
+        }
       }
     } catch (error) {
       console.error('检查连接配置失败:', error)
@@ -145,6 +158,12 @@ export default function SqlWorkbenchPage() {
   // 新增：处理格式化SQL
   const handleFormatSQL = () => {
     queryWorkspaceRef.current?.formatSQL()
+  }
+
+  // 新增：处理字体大小变化
+  const handleFontSizeChange = (newSize: number) => {
+    setFontSize(newSize)
+    localStorage.setItem(FONT_SIZE_STORAGE_KEY, newSize.toString())
   }
 
   // 修改：处理执行SQL查询，支持选中文本参数
@@ -304,6 +323,8 @@ export default function SqlWorkbenchPage() {
         sqlQuery={sqlQuery}
         selectedText={selectedText}
         onFormatSQL={handleFormatSQL}
+        fontSize={fontSize}
+        onFontSizeChange={handleFontSizeChange}
       />
 
       {/* 主要查询工作区 - 传递选中文本变化回调 */}
@@ -316,6 +337,7 @@ export default function SqlWorkbenchPage() {
         queryResult={queryResult}
         error={error}
         onSelectionChange={handleSelectionChange}
+        fontSize={fontSize}
       />
 
       {/* 数据库对象对话框 */}

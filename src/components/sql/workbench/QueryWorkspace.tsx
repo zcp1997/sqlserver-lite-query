@@ -13,6 +13,7 @@ interface QueryWorkspaceProps {
   queryResult: QueryResult | null;
   error: string | null;
   onSelectionChange?: (selectedText: string) => void;
+  fontSize?: number; // 新增：字体大小
 }
 
 // 暴露给父组件的方法
@@ -27,7 +28,8 @@ const QueryWorkspace = forwardRef<QueryWorkspaceRef, QueryWorkspaceProps>(({
   isExecuting,
   queryResult,
   error,
-  onSelectionChange
+  onSelectionChange,
+  fontSize = 14 // 新增：字体大小，默认14
 }, ref) => {
   const sqlEditorRef = useRef<SqlEditorRef>(null)
   
@@ -72,6 +74,7 @@ const QueryWorkspace = forwardRef<QueryWorkspaceRef, QueryWorkspaceProps>(({
                 onChange={updateTabContent}
                 readOnly={isExecuting}
                 onSelectionChange={onSelectionChange}
+                fontSize={fontSize}
               />
             </div>
           )}
