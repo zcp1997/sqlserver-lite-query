@@ -390,7 +390,6 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, isLoading = false, on
                         <Button variant="outline" size="sm" disabled={!gridApis[tab.id]}>
                           <SettingsIcon className="h-4 w-4 mr-1" />
                           操作
-                          <MoreVerticalIcon className="h-4 w-4 ml-1" />
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end" className="w-52">
