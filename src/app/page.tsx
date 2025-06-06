@@ -24,6 +24,8 @@ import DatabaseObjectsDialog from '@/components/sql/workbench/DatabaseObjectsDia
 import SqlScriptsDialog from '@/components/sql/workbench/SqlScriptsDialog'
 import QueryWorkspace, { QueryWorkspaceRef } from '@/components/sql/workbench/QueryWorkspace'
 import { Workspace } from '@/types/workspace'
+import { ThemeSwitcher } from '@/components/ui/theme-switcher'
+import { ModeToggle } from '@/components/dashboard/mode-toggle'
 
 export default function SqlWorkbenchPage() {
   // 使用 Session context
@@ -168,7 +170,7 @@ export default function SqlWorkbenchPage() {
                   className="text-sm"
                 >
                   <Trash2 className="h-4 w-4 mr-2" />
-                  清空数据
+                  清空所有数据
                 </Button>
               </DialogTrigger>
               <DialogContent>
@@ -190,6 +192,12 @@ export default function SqlWorkbenchPage() {
               </DialogContent>
             </Dialog>
           </div>
+        </div>
+
+        {/* 右侧：主题切换区域 */}
+        <div className="flex items-center gap-2">
+          <ThemeSwitcher />
+          <ModeToggle />
         </div>
       </div>
 

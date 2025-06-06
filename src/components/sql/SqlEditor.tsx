@@ -476,31 +476,22 @@ const SqlEditor = forwardRef<SqlEditorRef, SqlEditorProps>(({
       // 获取当前SQL文本
       const currentValue = editorRef.current.getValue()
 
+      if (!currentValue.trim()) {
+        return // 空内容不处理
+      }
+
       try {
-        // 分割多条SQL语句（保留原始分号）
-        const statements = currentValue.split(';')
-
-        // 对非空语句进行格式化
-        const formattedStatements = statements.map((stmt: string, index: number) => {
-          const trimmed = stmt.trim()
-          if (!trimmed) return ''
-
-          // 格式化单条语句
-          const formatted = format(trimmed, {
-            language: 'tsql',
-            indentStyle: 'standard',
-            keywordCase: 'upper',
-            linesBetweenQueries: 2,
-            // 添加此配置以支持中文标识符
-            identifierCase: 'preserve'
-          })
-
-          // 如果不是最后一个非空语句，添加分号
-          return formatted + (index < statements.length - 1 && trimmed ? ';' : '')
+        // 使用sql-formatter格式化整个SQL文本
+        const formattedValue = format(currentValue, {
+          language: 'transactsql', // 使用SQL Server的T-SQL方言
+          indentStyle: 'standard',
+          keywordCase: 'upper',
+          identifierCase: 'preserve', // 保持标识符原样，支持中文
+          functionCase: 'upper',
+          linesBetweenQueries: 2,
+          denseOperators: false,
+          newlineBeforeSemicolon: false
         })
-
-        // 用双换行符连接语句
-        const formattedValue = formattedStatements.join('\n\n').trim()
 
         // 更新编辑器内容
         editorRef.current.setValue(formattedValue)
@@ -509,7 +500,7 @@ const SqlEditor = forwardRef<SqlEditorRef, SqlEditorProps>(({
         console.error('SQL formatting error:', error)
       }
     }
-  }, [onChange])
+  }, [onChange,])
 
   // 暴露方法给父组件
   useImperativeHandle(ref, () => ({

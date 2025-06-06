@@ -7,7 +7,6 @@ import { ThemeProvider } from "@/components/ui/theme-provider"
 import { GeistSans } from "geist/font/sans"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 import { AppSidebar } from "@/components/dashboard/app-sidebar"
-import { SiteHeader } from "@/components/dashboard/site-header"
 import "./globals.css"
 import "./themes.css"
 import { useEffect, useState } from "react"
@@ -46,17 +45,14 @@ export default function RootLayout({
   // 主要内容，只在主题加载后才显示
   const mainContent = isThemeLoaded && activeThemeValue ? (
     <ActiveThemeProvider initialTheme={activeThemeValue}>
-      <main className="[--header-height:calc(theme(spacing.14))]">
-        <SidebarProvider defaultOpen={true} className="flex flex-col">
-          <SiteHeader />
-          <div className="flex flex-1">
-            <AppSidebar />
-            <SidebarInset>
-              <SessionProvider>
-                {children}
-              </SessionProvider>
-            </SidebarInset>
-          </div>
+      <main className="h-screen">
+        <SidebarProvider defaultOpen={true} className="flex h-full">
+          <AppSidebar />
+          <SidebarInset className="flex-1">
+            <SessionProvider>
+              {children}
+            </SessionProvider>
+          </SidebarInset>
         </SidebarProvider>
       </main>
       <Toaster />

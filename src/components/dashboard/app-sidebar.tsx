@@ -6,10 +6,17 @@ import {
   LogsIcon,
   FileTextIcon
 } from "lucide-react"
+import { usePathname, useRouter } from 'next/navigation'
 
-import { Sidebar, SidebarContent } from "@/components/ui/sidebar"
-import { NavMain } from "./nav-main"
-import { NavSecondary } from "./nav-secondary"
+import { 
+  Sidebar, 
+  SidebarContent,
+  SidebarGroup,
+  SidebarGroupContent,
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+} from "@/components/ui/sidebar"
 
 const data = {
   navMain: [
@@ -29,19 +36,44 @@ const data = {
       icon: LogsIcon,
     },
   ],
-  navSecondary: [
-  ],
 }
 
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
+  const pathname = usePathname()
+  const router = useRouter()
+
+  const menuHandler = (item: typeof data.navMain[0]) => {
+    router.push(item.url)
+  }
+
   return (
     <Sidebar
-      className="top-(--header-height) h-[calc(100svh-var(--header-height))]!"
+      collapsible="none"
+      className="!w-[calc(var(--sidebar-width-icon)_+_1px)] border-r h-screen"
       {...props}
     >
       <SidebarContent>
-        <NavMain items={data.navMain} />
-        <NavSecondary items={data.navSecondary} className="mt-auto" />
+        <SidebarGroup>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {data.navMain.map((item) => (
+                <SidebarMenuItem key={item.title}>
+                  <SidebarMenuButton
+                    isActive={pathname === item.url}
+                    tooltip={{
+                      children: item.title,
+                      hidden: false,
+                    }}
+                  >
+                    <div className="cursor-pointer" onClick={() => menuHandler(item)}>
+                      <item.icon />
+                    </div>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ))}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
       </SidebarContent>
     </Sidebar>
   )

@@ -56,7 +56,7 @@ export default function ToolbarActions({
           <DropdownMenuTrigger asChild>
             <Button variant="outline" size="sm">
               <DatabaseIcon className="h-4 w-4 mr-1" />
-              数据库对象管理
+              数据库对象查询
               <ChevronDownIcon className="h-4 w-4 ml-1" />
             </Button>
           </DropdownMenuTrigger>
@@ -66,15 +66,15 @@ export default function ToolbarActions({
             <DropdownMenuGroup>
               <DropdownMenuItem onClick={() => onOpenDbObjectDialog(DatabaseObjectType.StoredProcedure)}>
                 <Settings className="mr-2 h-4 w-4" />
-                存储过程管理
+                存储过程查询
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => onOpenDbObjectDialog(DatabaseObjectType.Function)}>
                 <Zap className="mr-2 h-4 w-4" />
-                函数管理
+                函数查询
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => onOpenDbObjectDialog(DatabaseObjectType.View)}>
                 <Eye className="mr-2 h-4 w-4" />
-                视图管理
+                视图查询
               </DropdownMenuItem>
             </DropdownMenuGroup>
           </DropdownMenuContent>

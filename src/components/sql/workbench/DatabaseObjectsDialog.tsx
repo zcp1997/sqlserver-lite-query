@@ -113,12 +113,12 @@ export default function DatabaseObjectsDialog({
       <DialogContent className="sm:max-w-[800px] max-h-[80vh] overflow-hidden flex flex-col">
         <DialogHeader>
           <DialogTitle>
-            {dbObjectType === DatabaseObjectType.StoredProcedure && '存储过程管理'}
-            {dbObjectType === DatabaseObjectType.Function && '函数管理'}
-            {dbObjectType === DatabaseObjectType.View && '视图管理'}
+            {dbObjectType === DatabaseObjectType.StoredProcedure && '存储过程查询'}
+            {dbObjectType === DatabaseObjectType.Function && '函数查询'}
+            {dbObjectType === DatabaseObjectType.View && '视图查询'}
           </DialogTitle>
           <DialogDescription>
-            搜索并管理数据库对象
+            搜索并查询数据库对象
           </DialogDescription>
         </DialogHeader>
 

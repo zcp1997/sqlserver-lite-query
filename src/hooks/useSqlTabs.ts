@@ -114,7 +114,7 @@ export function useSqlTabs(activeSession: Session | null): UseSqlTabsReturn {
     const newTabId = uuidv4()
     const newTab: EditorTab = {
       id: newTabId,
-      title: `SQLQuery${tabCounter}`,
+      title: `SQL Query`,
       content: '',
       sessionId: activeSession.id,
       isDirty: false

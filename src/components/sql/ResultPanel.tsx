@@ -30,6 +30,7 @@ ModuleRegistry.registerModules([AllCommunityModule]);
 interface ResultPanelProps {
   result: QueryResult
   isLoading?: boolean
+  onClose?: () => void
 }
 
 interface GridTabData {
@@ -100,7 +101,7 @@ const createCellRenderer = (toast: any) => {
   };
 };
 
-const ResultPanel: React.FC<ResultPanelProps> = React.memo(({ result, isLoading = false }) => {
+const ResultPanel: React.FC<ResultPanelProps> = React.memo(({ result, isLoading = false, onClose }) => {
   const { toast } = useToast();
   const [activeTab, setActiveTab] = useState<string>('');
   const [gridApis, setGridApis] = useState<Record<string, GridApi>>({});
@@ -444,6 +445,9 @@ const ResultPanel: React.FC<ResultPanelProps> = React.memo(({ result, isLoading 
                   <div className="flex items-center gap-2"> {/* ... Toolbar buttons JSX ... */}
                     <Button variant="outline" size="sm" onClick={() => autoSizeColumns(tab.id)} disabled={!gridApis[tab.id] || !gridReady[tab.id]}>自适应列宽</Button>
                     <Button variant="outline" size="sm" onClick={() => exportToCsv(tab.id)} disabled={!gridApis[tab.id] || !gridReady[tab.id]}> <DownloadIcon className="h-4 w-4 mr-1" /> 导出CSV </Button>
+                    {onClose && (
+                      <Button variant="outline" size="sm" onClick={onClose}> <XIcon className="h-4 w-4 mr-1" /> 关闭 </Button>
+                    )}
                   </div>
                 </div>
               </div>
