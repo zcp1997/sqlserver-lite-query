@@ -12,6 +12,12 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useToast } from '@/hooks/use-toast'
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import {
   TableIcon,
   DownloadIcon,
   InfoIcon,
@@ -19,7 +25,11 @@ import {
   DatabaseIcon,
   XIcon,
   SearchIcon,
-  ClockIcon
+  ClockIcon,
+  SettingsIcon,
+  ZapIcon,
+  RulerIcon,
+  MoreVerticalIcon
 } from 'lucide-react'
 import { useTheme } from "next-themes"
 
@@ -53,7 +63,7 @@ const DEFAULT_CONFIG: ColumnWidthConfig = {
 // 计算文本显示宽度（支持中英文混合）
 const calculateTextWidth = (text: string, config: ColumnWidthConfig): number => {
   if (!text || typeof text !== 'string') return 0;
-  
+
   let width = 0;
   for (let i = 0; i < text.length; i++) {
     const char = text[i];
@@ -75,13 +85,13 @@ const calculateTextWidth = (text: string, config: ColumnWidthConfig): number => 
 
 // 计算单列最适宜宽度
 const calculateColumnWidth = (
-  columnName: string, 
-  columnData: any[], 
+  columnName: string,
+  columnData: any[],
   config: ColumnWidthConfig = DEFAULT_CONFIG
 ): number => {
   // 1. 计算列头宽度
   const headerTextWidth = calculateTextWidth(columnName, config);
-  
+
   // 2. 为AG Grid的UI元素预留额外空间
   // - 排序图标: ~20px
   // - 筛选按钮: ~20px  
@@ -89,20 +99,20 @@ const calculateColumnWidth = (
   // - 内边距: ~20px
   const agGridUISpace = 70; // AG Grid UI元素总占用空间
   const headerTotalWidth = headerTextWidth + agGridUISpace;
-  
+
   // 3. 如果没有数据，基于列头宽度返回
   if (!columnData || columnData.length === 0) {
     return Math.max(config.minWidth, Math.min(headerTotalWidth, config.maxWidth));
   }
-  
+
   // 4. 采样数据以提高性能
-  const sampleData = columnData.length > config.sampleSize 
+  const sampleData = columnData.length > config.sampleSize
     ? [
-        ...columnData.slice(0, Math.floor(config.sampleSize * 0.7)),
-        ...columnData.slice(-Math.floor(config.sampleSize * 0.3))
-      ]
+      ...columnData.slice(0, Math.floor(config.sampleSize * 0.7)),
+      ...columnData.slice(-Math.floor(config.sampleSize * 0.3))
+    ]
     : columnData;
-  
+
   // 5. 计算内容的最大宽度
   let maxContentWidth = 0;
   for (const value of sampleData) {
@@ -112,18 +122,18 @@ const calculateColumnWidth = (
       maxContentWidth = Math.max(maxContentWidth, nullWidth);
       continue;
     }
-    
+
     const textValue = String(value);
     const contentWidth = calculateTextWidth(textValue, config);
     maxContentWidth = Math.max(maxContentWidth, contentWidth);
   }
-  
+
   // 6. 内容宽度也需要加上基本的单元格padding
   const contentTotalWidth = maxContentWidth + config.padding;
-  
+
   // 7. 取列头和内容宽度的最大值
   const finalWidth = Math.max(headerTotalWidth, contentTotalWidth);
-  
+
   // 8. 限制在最小和最大宽度范围内
   return Math.max(config.minWidth, Math.min(finalWidth, config.maxWidth));
 };
@@ -136,20 +146,32 @@ const nullCellRenderer = (params: any) => {
   return params.value;
 };
 
+// 更简洁的方式是创建专门的日期单元格渲染器
+const dateCellRenderer = (params: any) => {
+  if (params.value === null || params.value === undefined) {
+    return <span style={{ color: '#999', fontStyle: 'italic' }}>NULL</span>;
+  }
+
+  // 对于日期列，直接使用格式化函数
+  const formattedDate = dateFormatter(params);
+  return formattedDate;
+};
+
 // 日期格式化器
 const dateFormatter = (params: any) => {
   if (!params.value) return '';
   try {
     const date = new Date(params.value);
     if (!isNaN(date.getTime())) {
-      return date.toLocaleString('zh-CN', {
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit'
-      });
+      // 格式化为 yyyy-MM-dd HH:mm:ss.SSS
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      const hours = String(date.getHours()).padStart(2, '0');
+      const minutes = String(date.getMinutes()).padStart(2, '0');
+      const seconds = String(date.getSeconds()).padStart(2, '0');
+      const milliseconds = String(date.getMilliseconds()).padStart(3, '0');
+      return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}.${milliseconds}`;
     }
   } catch (e) { /* Return original value on error */ }
   return params.value;
@@ -197,7 +219,7 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, isLoading = false, on
 
     // 计算每列的最适宜宽度
     const columnWidths: Record<string, number> = {};
-    
+
     for (let i = 0; i < resultSet.columns.length; i++) {
       const columnName = resultSet.columns[i];
       const columnData = resultSet.rows?.map(row => row[columnName]) || [];
@@ -209,7 +231,7 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, isLoading = false, on
       const columnType = resultSet.column_types?.[index];
       const isDateColumn = columnType === 'Datetime' || columnType === 'Datetimen';
       const calculatedWidth = columnWidths[columnName];
-      
+
       return {
         headerName: columnName,
         field: columnName,
@@ -219,8 +241,7 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, isLoading = false, on
         width: calculatedWidth, // 使用计算出的宽度
         minWidth: DEFAULT_CONFIG.minWidth,
         //maxWidth: DEFAULT_CONFIG.maxWidth,
-        valueFormatter: isDateColumn ? dateFormatter : undefined,
-        cellRenderer: nullCellRenderer,
+        cellRenderer: isDateColumn ? dateCellRenderer : nullCellRenderer,
         suppressSizeToFit: false,
       };
     });
@@ -262,7 +283,6 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, isLoading = false, on
       if (tab) {
         const newColumnDefs = generateColumnDefs(tab.resultSet);
         gridApi.setGridOption('columnDefs', newColumnDefs);
-        toast.success('列宽已重新计算');
       }
     }
   }, [gridApis, tabsData, generateColumnDefs, toast]);
@@ -365,22 +385,39 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, isLoading = false, on
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
-                    <Button 
-                      variant="outline" 
-                      size="sm" 
-                      onClick={() => recalculateColumnWidths(tab.id)} 
-                      disabled={!gridApis[tab.id]}
-                      title="基于内容重新计算最适宜的列宽"
-                    >
-                      智能调整列宽
-                    </Button>
-                    {/* <Button variant="outline" size="sm" onClick={() => autoSizeColumns(tab.id)} disabled={!gridApis[tab.id]}>
-                      自适应列宽
-                    </Button> */}
-                    <Button variant="outline" size="sm" onClick={() => exportToCsv(tab.id)} disabled={!gridApis[tab.id]}>
-                      <DownloadIcon className="h-4 w-4 mr-1" />
-                      导出CSV
-                    </Button>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="outline" size="sm" disabled={!gridApis[tab.id]}>
+                          <SettingsIcon className="h-4 w-4 mr-1" />
+                          操作
+                          <MoreVerticalIcon className="h-4 w-4 ml-1" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="w-52">
+
+                        <DropdownMenuItem
+                          onClick={() => autoSizeColumns(tab.id)}
+                          disabled={!gridApis[tab.id]}
+                        >
+                          <ZapIcon className="h-4 w-4 mr-2" />
+                          自适应列宽
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onClick={() => recalculateColumnWidths(tab.id)}
+                          disabled={!gridApis[tab.id]}
+                        >
+                          <RulerIcon className="h-4 w-4 mr-2" />
+                          智能计算列宽
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onClick={() => exportToCsv(tab.id)}
+                          disabled={!gridApis[tab.id]}
+                        >
+                          <DownloadIcon className="h-4 w-4 mr-2" />
+                          导出CSV
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                     {onClose && (
                       <Button variant="outline" size="sm" onClick={onClose}>
                         <XIcon className="h-4 w-4 mr-1" />
