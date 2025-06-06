@@ -160,9 +160,16 @@ const nullCellRenderer = (params: any) => {
 // 更简洁的方式是创建专门的日期单元格渲染器
 const dateCellRenderer = (params: any) => {
   if (params.value === null || params.value === undefined) {
-    return <span style={{ color: '#999', fontStyle: 'italic' }}>NULL</span>;
+    return <span
+      style={{
+        backgroundColor: '#FFFFE0',
+        color: '#999',
+        fontStyle: 'italic',
+      }}
+    >
+      NULL
+    </span>
   }
-
   // 对于日期列，直接使用格式化函数
   const formattedDate = dateFormatter(params);
   return formattedDate;
@@ -224,22 +231,44 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, isLoading = false, on
     }
   }, [tabsData.length]);
 
-  // 生成带有自动宽度的列定义
+  // 自定义Inner Header组件 - 只替换文本显示，保留AG Grid原生功能
+  const CustomInnerHeaderComponent = (props: any) => {
+    const { displayName, columnType } = props;
+
+    return (
+      <div className="flex items-center gap-2 min-w-0">
+        <span className="font-medium truncate">{displayName}</span>
+        <span className="text-xs text-muted-foreground bg-muted/60 px-1.5 py-0.5 rounded shrink-0">
+          {columnType}
+        </span>
+      </div>
+    );
+  };
+
+  // 生成带有自定义inner header和自动宽度的列定义
   const generateColumnDefs = useCallback((resultSet: ResultSet): ColDef[] => {
     if (!resultSet.columns || resultSet.columns.length === 0) return [];
 
-    // 计算每列的最适宜宽度
+    // 计算每列的最适宜宽度（需要考虑列类型标签的额外宽度）
     const columnWidths: Record<string, number> = {};
 
     for (let i = 0; i < resultSet.columns.length; i++) {
       const columnName = resultSet.columns[i];
+      const columnType = resultSet.column_types?.[i] || '';
       const columnData = resultSet.rows?.map(row => row[columnName]) || [];
-      const calculatedWidth = calculateColumnWidth(columnName, columnData, DEFAULT_CONFIG);
+
+      // 计算基础宽度
+      let calculatedWidth = calculateColumnWidth(columnName, columnData, DEFAULT_CONFIG);
+
+      // 为列类型标签预留额外空间
+      const typeTagWidth = calculateTextWidth(columnType, DEFAULT_CONFIG) + 20; // 20px for padding and margins
+      calculatedWidth = Math.max(calculatedWidth, calculatedWidth + typeTagWidth);
+
       columnWidths[columnName] = calculatedWidth;
     }
 
     return resultSet.columns.map((columnName, index) => {
-      const columnType = resultSet.column_types?.[index];
+      const columnType = resultSet.column_types?.[index] || '';
       const isDateColumn = columnType === 'Datetime' || columnType === 'Datetimen';
       const calculatedWidth = columnWidths[columnName];
 
@@ -249,9 +278,15 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, isLoading = false, on
         sortable: true,
         filter: true,
         resizable: true,
-        width: calculatedWidth, // 使用计算出的宽度
-        minWidth: DEFAULT_CONFIG.minWidth,
-        //maxWidth: DEFAULT_CONFIG.maxWidth,
+        width: calculatedWidth,
+        minWidth: Math.max(DEFAULT_CONFIG.minWidth, 140), // 增加最小宽度以容纳标签和按钮
+        headerComponentParams: {
+          innerHeaderComponent: CustomInnerHeaderComponent,
+          innerHeaderComponentParams: {
+            displayName: columnName,
+            columnType: columnType
+          }
+        },
         cellRenderer: isDateColumn ? dateCellRenderer : nullCellRenderer,
         suppressSizeToFit: false,
       };
@@ -265,7 +300,11 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, isLoading = false, on
   const exportToCsv = (tabId: string) => {
     const gridApi = gridApis[tabId];
     if (gridApi) {
-      gridApi.exportDataAsCsv({ fileName: `query_result_${tabId}.csv` });
+      const now = new Date();
+      const timestamp = now.toLocaleString('sv-SE', {
+        timeZone: 'Asia/Shanghai'
+      }).replace(/[\s:]/g, '-');
+      gridApi.exportDataAsCsv({ fileName: `query_result_${timestamp}.csv` });
       toast.success('导出成功', { description: '数据已导出为CSV文件' });
     }
   };
@@ -439,12 +478,12 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, isLoading = false, on
               </div>
 
               <div className="flex-1 overflow-hidden">
-                {tab.resultSet.rows && tab.resultSet.rows.length > 0 ? (
+                {tab.resultSet.columns && tab.resultSet.columns.length > 0 ? (
                   <div className="ag-theme-quartz h-full w-full">
                     <AgGridReact
                       theme={theme}
                       localeText={AG_GRID_LOCALE_CN}
-                      rowData={tab.resultSet.rows}
+                      rowData={tab.resultSet.rows || []}
                       columnDefs={generateColumnDefs(tab.resultSet)}
                       defaultColDef={{
                         sortable: true,
@@ -469,6 +508,11 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, isLoading = false, on
                       suppressScrollOnNewData={true}
                       suppressMovableColumns={false}
                       suppressMenuHide={true}
+                      rowSelection={{
+                        mode: 'singleRow',
+                        checkboxes: false,
+                        enableClickSelection: true
+                      }}
                     />
                   </div>
                 ) : tab.affectedRows !== undefined && tab.affectedRows > 0 ? (

@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::Duration;
 use thiserror::Error;
-use tiberius::{AuthMethod, Client, Config, EncryptionLevel, Row};
+use tiberius::{AuthMethod, Client, Config, EncryptionLevel, Row, QueryItem};
 use tokio::net::TcpStream;
 use tokio::time::timeout;
 use tokio_util::compat::{Compat, TokioAsyncWriteCompatExt};
@@ -280,114 +280,120 @@ pub async fn execute_query(
     client: &mut Client<Compat<TcpStream>>,
     sql: &str,
 ) -> Result<QueryResult, DatabaseError> {
-    let mut result_sets = Vec::new();
     let start_time = std::time::Instant::now();
+    let mut result_sets: Vec<ResultSet> = Vec::new();
+    let mut current_result_set: Option<ResultSet> = None;
 
-    // 不分割SQL，直接执行整个查询
     match client.simple_query(sql).await {
-        Ok(result) => {
-            // 获取所有结果集
-            match result.into_results().await {
-                Ok(all_result_sets) => {
-
-                    // 处理每个结果集
-                    for result_rows in all_result_sets {
-                        let mut columns = Vec::new();
-                        let mut column_types = Vec::new();
-                        let mut processed_rows = Vec::new();
-
-                        if !result_rows.is_empty() {
-                            // 获取列信息 - 只借用第一行来获取列信息
-                            let cols = result_rows[0].columns();
-                            let mut unnamed_count = 0;
-                            let mut column_name_map = HashMap::new();
-
-                            column_types = cols
-                                .iter()
-                                .map(|c| format!("{:?}", c.column_type()))
-                                .collect();
-
-                            // 处理列名
-                            for (i, c) in cols.iter().enumerate() {
-                                let name = c.name();
-                                if name.is_empty() {
-                                    unnamed_count += 1;
-                                    let generated_name = format!("Column_{}", unnamed_count);
-                                    column_name_map.insert(i, generated_name);
-                                } else {
-                                    if column_name_map.values().any(|v| v == name) {
-                                        let unique_name = format!("{}_{}", name, i);
-                                        column_name_map.insert(i, unique_name);
-                                    } else {
-                                        column_name_map.insert(i, name.to_string());
-                                    }
-                                }
-                            }
-
-                            // 处理所有行 - 使用引用迭代
-                            for row in &result_rows {
-                                let mut row_data = HashMap::new();
-                                for (i, _) in cols.iter().enumerate() {
-                                    let column_name = column_name_map.get(&i).unwrap();
-                                    let value = match get_value_as_json(row, i) {
-                                        Ok(val) => val,
-                                        Err(_) => serde_json::Value::Null,
-                                    };
-                                    row_data.insert(column_name.clone(), value);
-                                }
-                                processed_rows.push(row_data);
-                            }
-
-                            // 更新列名列表
-                            let mut column_entries: Vec<(&usize, &String)> =
-                                column_name_map.iter().collect();
-                            column_entries.sort_by_key(|&(idx, _)| *idx);
-                            columns = column_entries
-                                .into_iter()
-                                .map(|(_, name)| name.clone())
-                                .collect();
+        Ok(mut stream) => {
+            while let Some(item) = stream.try_next().await.map_err(|e| DatabaseError::QueryError(e.to_string()))? {
+                match item {
+                    QueryItem::Metadata(meta) => {
+                        // 当我们收到元数据时，意味着一个新的结果集开始了。
+                        // 如果之前已经有一个结果集正在处理，我们就先保存它。
+                        if let Some(finished_result_set) = current_result_set.take() {
+                            result_sets.push(finished_result_set);
                         }
 
-                        let affected_rows_count = Some(processed_rows.len() as u64);
+                        // 从元数据中提取列名和类型
+                        let mut unnamed_count = 0;
+                        let columns: Vec<String> = meta.columns().iter().enumerate().map(|(i, c)| {
+                            let name = c.name();
+                            if name.is_empty() {
+                                unnamed_count += 1;
+                                format!("Column_{}", unnamed_count)
+                            } else {
+                                // 基础的重名处理
+                                if meta.columns().iter().filter(|c2| c2.name() == name).count() > 1 {
+                                    format!("{}_{}", name, i)
+                                } else {
+                                    name.to_string()
+                                }
+                            }
+                        }).collect();
 
-                        // 添加到结果集
-                        result_sets.push(ResultSet {
+                        let column_types: Vec<String> = meta
+                            .columns()
+                            .iter()
+                            .map(|c| format!("{:?}", c.column_type()))
+                            .collect();
+                        
+                        // 初始化新的结果集
+                        current_result_set = Some(ResultSet {
                             columns,
                             column_types,
-                            rows: processed_rows,
-                            affected_rows: affected_rows_count,
+                            rows: Vec::new(),
+                            affected_rows: None, // 行数将在处理完行后更新
                             error: None,
                         });
                     }
+                    QueryItem::Row(row) => {
+                        // 如果收到一行数据，它属于当前的结果集
+                        if let Some(ref mut rs) = current_result_set {
+                            let mut row_data = HashMap::new();
+                            for (i, col_name) in rs.columns.iter().enumerate() {
+                                let value = match get_value_as_json(&row, i) {
+                                    Ok(val) => val,
+                                    Err(_) => serde_json::Value::Null,
+                                };
+                                row_data.insert(col_name.clone(), value);
+                            }
+                            rs.rows.push(row_data);
+                        }
+                    }
                 }
-                Err(e) => {
-                    return Err(DatabaseError::QueryError(format!("处理结果集失败: {}", e)));
-                }
+            }
+
+            // 处理最后一个结果集
+            if let Some(mut last_result_set) = current_result_set.take() {
+                let affected_rows_count = last_result_set.rows.len() as u64;
+                last_result_set.affected_rows = Some(affected_rows_count);
+                result_sets.push(last_result_set);
             }
         }
         Err(e) => {
-            return Err(DatabaseError::QueryError(format!("{}", e)));
+             // 对于INSERT, UPDATE, DELETE等没有返回结果集的语句
+             // 它们可能会在ExecuteResult中返回受影响的行数
+            if let Some(rows_affected) = e.code() {
+                 // 这里只是一个示例，根据您的具体错误处理逻辑调整
+                 // e.rows_affected() 似乎不存在，但可以通过错误码判断
+                 // 通常，您可能需要检查具体的错误类型
+                result_sets.push(ResultSet {
+                    columns: Vec::new(),
+                    column_types: Vec::new(),
+                    rows: Vec::new(),
+                    affected_rows: Some(rows_affected as u64),
+                    error: Some(e.to_string()),
+                });
+
+            } else {
+                return Err(DatabaseError::QueryError(format!("{}", e)));
+            }
         }
     }
-
-    // 如果没有任何结果集，添加一个空的
+    
+    // 如果执行了非查询语句（如UPDATE, INSERT）而没有任何返回，
+    // a `simple_query` call might not produce any result sets.
+    // In such cases, you might want to return a default result set indicating rows affected if that info is available.
+    // Note: `client.simple_query` is more for SELECT. For INSERT/UPDATE/DELETE, `client.execute` might be more appropriate
+    // as it returns an `ExecuteResult` with `rows_affected()`.
+    // If you stick with `simple_query`, you might need to handle the absence of result sets like this.
     if result_sets.is_empty() {
         result_sets.push(ResultSet {
             columns: Vec::new(),
             column_types: Vec::new(),
             rows: Vec::new(),
-            affected_rows: Some(0),
+            affected_rows: Some(0), // 或者从其他地方获取
             error: None,
         });
     }
 
-    let execution_time = start_time.elapsed();
-    let execution_time_secs = execution_time.as_secs_f64();
+    let execution_time = start_time.elapsed().as_secs_f64();
 
     Ok(QueryResult {
         result_sets,
         error: None,
-        execution_time: Some(execution_time_secs),
+        execution_time: Some(execution_time),
     })
 }
 
