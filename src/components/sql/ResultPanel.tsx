@@ -254,15 +254,12 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, isLoading = false, on
 
     for (let i = 0; i < resultSet.columns.length; i++) {
       const columnName = resultSet.columns[i];
-      const columnType = resultSet.column_types?.[i] || '';
       const columnData = resultSet.rows?.map(row => row[columnName]) || [];
 
       // 计算基础宽度
       let calculatedWidth = calculateColumnWidth(columnName, columnData, DEFAULT_CONFIG);
 
-      // 为列类型标签预留额外空间
-      const typeTagWidth = calculateTextWidth(columnType, DEFAULT_CONFIG) + 20; // 20px for padding and margins
-      calculatedWidth = Math.max(calculatedWidth, calculatedWidth + typeTagWidth);
+      calculatedWidth = Math.max(calculatedWidth, calculatedWidth);
 
       columnWidths[columnName] = calculatedWidth;
     }
