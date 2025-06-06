@@ -561,7 +561,7 @@ const SqlEditor = forwardRef<SqlEditorRef, SqlEditorProps>(({
             automaticLayout: true,
             tabSize: 2,
             readOnly,
-            fontSize: 14,
+            fontSize: 13,
             fontFamily: [
               '"JetBrainsMono"',
               '"Source Code Pro"',      // 更好的中文兼容性

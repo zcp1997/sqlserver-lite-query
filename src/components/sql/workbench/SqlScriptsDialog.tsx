@@ -128,7 +128,7 @@ export default function SqlScriptsDialog({
 
       {/* 确认对话框 - 修复bug1：独立的确认对话框 */}
       <Dialog open={showConfirmDialog} onOpenChange={setShowConfirmDialog}>
-        <DialogContent className="sm:max-w-[425px]">
+        <DialogContent className="sm:max-w-[600px] max-h-[70vh]">
           <DialogHeader>
             <DialogTitle>确认选择</DialogTitle>
             <DialogDescription>
@@ -137,16 +137,20 @@ export default function SqlScriptsDialog({
           </DialogHeader>
           
           {selectedScript && (
-            <div className="py-4">
+            <div className="py-4 min-h-0 flex-1 overflow-hidden">
               <p className="text-sm text-muted-foreground mb-2">即将加载的脚本：</p>
-              <p className="text-sm font-medium">{selectedScript.name}</p>
-              <div className="mt-2 p-2 bg-muted rounded text-xs max-h-32 overflow-y-auto">
-                <pre className="whitespace-pre-wrap">{selectedScript.content}</pre>
+              <p className="text-sm font-medium mb-2 truncate" title={selectedScript.name}>
+                {selectedScript.name}
+              </p>
+              <div className="p-3 bg-muted rounded text-xs overflow-auto max-h-48 w-full">
+                <pre className="whitespace-pre-wrap break-words overflow-wrap-anywhere font-mono text-xs leading-relaxed">
+                  {selectedScript.content}
+                </pre>
               </div>
             </div>
           )}
           
-          <DialogFooter>
+          <DialogFooter className="flex-shrink-0">
             <Button variant="outline" onClick={handleCancel}>
               取消
             </Button>
