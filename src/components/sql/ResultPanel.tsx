@@ -141,10 +141,21 @@ const calculateColumnWidth = (
 // 简化的单元格渲染器
 const nullCellRenderer = (params: any) => {
   if (params.value === null || params.value === undefined) {
-    return <span style={{ color: '#999', fontStyle: 'italic' }}>NULL</span>;
+    return (
+      <span
+        style={{
+          backgroundColor: '#FFFFE0',
+          color: '#999',
+          fontStyle: 'italic',
+        }}
+      >
+        NULL
+      </span>
+    );
   }
   return params.value;
 };
+
 
 // 更简洁的方式是创建专门的日期单元格渲染器
 const dateCellRenderer = (params: any) => {
