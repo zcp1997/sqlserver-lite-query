@@ -23,13 +23,13 @@
 * **前端**:
     * [Next.js](https://nextjs.org/): React 框架，用于构建用户界面。
     * [Tailwind CSS](https://tailwindcss.com/): 工具类优先的 CSS 框架。
-    * [Shadcn/ui](https://ui.shadcn.com/): 可重用的 UI 组件。
+    * [Shadcn](https://ui.shadcn.com/): 可重用的 UI 组件。
     * [AG Grid Community](https://www.ag-grid.com/community-edition/): 功能强大的数据表格组件。
     * [Monaco Editor](https://microsoft.github.io/monaco-editor/): 强大的代码编辑器，用于 SQL 编辑。
 
 * **后端**:
-    * [Tokio](https://tokio.rs/): Rust 的异步运行时。
     * [Tiberius](https://github.com/prisma/tiberius): 用于 SQL Server 的纯 Rust TDS 实现库。
+    * [Tokio](https://tokio.rs/): Rust 的异步运行时。
 
 ## ⚙️ 安装与运行
 
@@ -76,7 +76,7 @@
 - **预加载机制**：在数据库连接建立后自动预加载所有存储过程信息
 - **同步过滤**：输入 `EXEC` 关键字后，立即从预加载的缓存中过滤显示相关建议
 - **智能匹配**：支持按存储过程名称和schema名称进行模糊匹配
-- **缓存管理**：5分钟缓存TTL，支持手动刷新
+- **缓存管理**：60分钟缓存TTL，支持手动刷新
 
 #### 使用方法：
 1. 在SQL编辑器中输入 `EXEC` 
@@ -87,30 +87,3 @@
 - 预加载在后台进行，不影响用户操作
 - 使用同步过滤替代异步搜索，消除延迟
 - 智能缓存策略，平衡性能和数据新鲜度
-
-#### 开发调试：
-在开发环境中，会话选择器旁会显示调试按钮：
-- 🗄️ 检查预加载状态
-- 🔄 手动刷新预加载缓存
-
-## 开发
-
-### 环境要求
-- Node.js 18+
-- Rust 1.70+
-- SQL Server
-
-### 安装依赖
-```bash
-npm install
-```
-
-### 开发运行
-```bash
-npm run dev
-```
-
-### 构建
-```bash
-npm run build
-```

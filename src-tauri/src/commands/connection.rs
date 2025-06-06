@@ -1,6 +1,6 @@
 use crate::database::{
     create_connection, execute_non_query as db_execute_non_query,
-    execute_query as db_execute_query, execute_sql_smart, search_procedure_suggestions,
+    execute_query as db_execute_query, execute_sql_smart,
     search_procedure_suggestions_advanced, search_stored_functions, search_stored_procedures,
     search_stored_views, search_table_columns, search_tables, ColumnInfo, ConnectionConfig,
     ProcedureSuggestionItem, QueryResult, StoredFunctionInfo, StoredProcedureInfo, StoredViewInfo,
