@@ -1,14 +1,14 @@
 use anyhow::Result;
 use futures::TryStreamExt;
+use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::Duration;
 use thiserror::Error;
-use tiberius::{AuthMethod, Client, Config, EncryptionLevel, Row, QueryItem};
+use tiberius::{AuthMethod, Client, Config, EncryptionLevel, QueryItem, Row};
 use tokio::net::TcpStream;
 use tokio::time::timeout;
 use tokio_util::compat::{Compat, TokioAsyncWriteCompatExt};
-use rust_decimal::Decimal;
 
 pub mod sql_parser;
 pub use sql_parser::{SqlParser, SqlStatementType};
@@ -30,13 +30,13 @@ pub struct ConnectionConfig {
 
 impl PartialEq for ConnectionConfig {
     fn eq(&self, other: &Self) -> bool {
-        self.server == other.server &&
-        self.port == other.port &&
-        self.database == other.database &&
-        self.username == other.username &&
-        self.password == other.password &&
-        self.trust_server_certificate == other.trust_server_certificate &&
-        self.encrypt == other.encrypt
+        self.server == other.server
+            && self.port == other.port
+            && self.database == other.database
+            && self.username == other.username
+            && self.password == other.password
+            && self.trust_server_certificate == other.trust_server_certificate
+            && self.encrypt == other.encrypt
     }
 }
 
@@ -48,6 +48,19 @@ pub struct ResultSet {
     pub rows: Vec<HashMap<String, serde_json::Value>>,
     pub affected_rows: Option<u64>,
     pub error: Option<String>,
+}
+
+// 手动实现 Default trait
+impl Default for ResultSet {
+    fn default() -> Self {
+        Self {
+            columns: Vec::new(),
+            column_types: Vec::new(),
+            rows: Vec::new(),
+            affected_rows: Some(0), // 在这里设置默认值为 Some(0)
+            error: None,
+        }
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -172,7 +185,8 @@ fn get_value_as_json(row: &Row, index: usize) -> Result<serde_json::Value, Strin
     } else if let Ok(Some(val)) = row.try_get::<tiberius::numeric::Numeric, _>(index) {
         // 处理 SQL Server 的 decimal/numeric 类型
         let decimal_val = Decimal::from_i128_with_scale(val.value(), val.scale() as u32);
-        return Ok(serde_json::to_value(decimal_val).map_err(|e| format!("无法将Numeric转换为JSON: {}", e))?);
+        return Ok(serde_json::to_value(decimal_val)
+            .map_err(|e| format!("无法将Numeric转换为JSON: {}", e))?);
     } else if let Ok(Some(val)) = row.try_get::<chrono::NaiveDateTime, _>(index) {
         return Ok(
             serde_json::to_value(val).map_err(|e| format!("无法将DateTime转换为JSON: {}", e))?
@@ -285,106 +299,105 @@ pub async fn execute_query(
     let mut current_result_set: Option<ResultSet> = None;
 
     match client.simple_query(sql).await {
-        Ok(mut stream) => {
-            while let Some(item) = stream.try_next().await.map_err(|e| DatabaseError::QueryError(e.to_string()))? {
-                match item {
+        Ok(mut stream) => loop {
+            match stream.try_next().await {
+                Ok(Some(item)) => match item {
                     QueryItem::Metadata(meta) => {
-                        // 当我们收到元数据时，意味着一个新的结果集开始了。
-                        // 如果之前已经有一个结果集正在处理，我们就先保存它。
-                        if let Some(finished_result_set) = current_result_set.take() {
-                            result_sets.push(finished_result_set);
+                        if let Some(mut finished_rs) = current_result_set.take() {
+                            finished_rs.affected_rows = Some(finished_rs.rows.len() as u64);
+                            result_sets.push(finished_rs);
                         }
 
-                        // 从元数据中提取列名和类型
                         let mut unnamed_count = 0;
-                        let columns: Vec<String> = meta.columns().iter().enumerate().map(|(i, c)| {
-                            let name = c.name();
-                            if name.is_empty() {
-                                unnamed_count += 1;
-                                format!("Column_{}", unnamed_count)
-                            } else {
-                                // 基础的重名处理
-                                if meta.columns().iter().filter(|c2| c2.name() == name).count() > 1 {
+                        let columns: Vec<String> = meta
+                            .columns()
+                            .iter()
+                            .enumerate()
+                            .map(|(i, c)| {
+                                let name = c.name();
+                                if name.is_empty() {
+                                    unnamed_count += 1;
+                                    format!("Column_{}", unnamed_count)
+                                } else if meta
+                                    .columns()
+                                    .iter()
+                                    .filter(|c2| c2.name() == name)
+                                    .count()
+                                    > 1
+                                {
                                     format!("{}_{}", name, i)
                                 } else {
                                     name.to_string()
                                 }
-                            }
-                        }).collect();
+                            })
+                            .collect();
 
                         let column_types: Vec<String> = meta
                             .columns()
                             .iter()
                             .map(|c| format!("{:?}", c.column_type()))
                             .collect();
-                        
-                        // 初始化新的结果集
+
                         current_result_set = Some(ResultSet {
                             columns,
                             column_types,
-                            rows: Vec::new(),
-                            affected_rows: None, // 行数将在处理完行后更新
-                            error: None,
+                            ..Default::default()
                         });
                     }
                     QueryItem::Row(row) => {
-                        // 如果收到一行数据，它属于当前的结果集
                         if let Some(ref mut rs) = current_result_set {
                             let mut row_data = HashMap::new();
                             for (i, col_name) in rs.columns.iter().enumerate() {
-                                let value = match get_value_as_json(&row, i) {
-                                    Ok(val) => val,
-                                    Err(_) => serde_json::Value::Null,
-                                };
+                                let value =
+                                    get_value_as_json(&row, i).unwrap_or(serde_json::Value::Null);
                                 row_data.insert(col_name.clone(), value);
                             }
                             rs.rows.push(row_data);
                         }
                     }
+                },
+                Ok(None) => {
+                    // 流正常结束
+                    break;
+                }
+                Err(e) => {
+                    // 首先，完成并保存当前正在处理的（成功的）结果集
+                    if let Some(mut finished_rs) = current_result_set.take() {
+                        finished_rs.affected_rows = Some(finished_rs.rows.len() as u64);
+                        result_sets.push(finished_rs);
+                    }
+
+                    // 然后，创建一个全新的、只包含错误信息的结果集
+                    let error_rs = ResultSet {
+                        error: Some(e.to_string()),
+                        ..Default::default()
+                    };
+                    result_sets.push(error_rs);
+
+                    // 错误发生后流已关闭，必须中断循环
+                    break;
                 }
             }
-
-            // 处理最后一个结果集
-            if let Some(mut last_result_set) = current_result_set.take() {
-                let affected_rows_count = last_result_set.rows.len() as u64;
-                last_result_set.affected_rows = Some(affected_rows_count);
-                result_sets.push(last_result_set);
-            }
-        }
+        },
         Err(e) => {
-             // 对于INSERT, UPDATE, DELETE等没有返回结果集的语句
-             // 它们可能会在ExecuteResult中返回受影响的行数
-            if let Some(rows_affected) = e.code() {
-                 // 这里只是一个示例，根据您的具体错误处理逻辑调整
-                 // e.rows_affected() 似乎不存在，但可以通过错误码判断
-                 // 通常，您可能需要检查具体的错误类型
-                result_sets.push(ResultSet {
-                    columns: Vec::new(),
-                    column_types: Vec::new(),
-                    rows: Vec::new(),
-                    affected_rows: Some(rows_affected as u64),
-                    error: Some(e.to_string()),
-                });
-
-            } else {
-                return Err(DatabaseError::QueryError(format!("{}", e)));
-            }
+            // 这个分支处理那些在查询开始前就发生的错误，例如连接问题或严重的语法错误
+            return Err(DatabaseError::QueryError(e.to_string()));
         }
     }
-    
-    // 如果执行了非查询语句（如UPDATE, INSERT）而没有任何返回，
-    // a `simple_query` call might not produce any result sets.
-    // In such cases, you might want to return a default result set indicating rows affected if that info is available.
-    // Note: `client.simple_query` is more for SELECT. For INSERT/UPDATE/DELETE, `client.execute` might be more appropriate
-    // as it returns an `ExecuteResult` with `rows_affected()`.
-    // If you stick with `simple_query`, you might need to handle the absence of result sets like this.
+
+    // 将最后一个正在处理的结果集（无论是成功的还是包含错误的）推入列表
+    if let Some(mut last_rs) = current_result_set.take() {
+        if last_rs.error.is_none() {
+            last_rs.affected_rows = Some(last_rs.rows.len() as u64);
+        }
+        result_sets.push(last_rs);
+    }
+
+    // 确保即使没有返回任何结果集（例如，纯粹的 DDL/DML 语句），也返回一个默认的结构
     if result_sets.is_empty() {
         result_sets.push(ResultSet {
-            columns: Vec::new(),
-            column_types: Vec::new(),
-            rows: Vec::new(),
-            affected_rows: Some(0), // 或者从其他地方获取
-            error: None,
+            affected_rows: Some(0), // 注意：simple_query 对于无返回的DML语句，行数可能不准确
+            ..Default::default()
         });
     }
 
@@ -453,15 +466,16 @@ pub async fn execute_sql_smart(
 
     // 逐个执行解析出的SQL语句
     for (index, parsed_stmt) in parsed_statements.iter().enumerate() {
-        println!("执行第{}个语句: {} (类型: {:?})", index + 1, parsed_stmt.sql, parsed_stmt.statement_type);
+        println!(
+            "执行第{}个语句: {} (类型: {:?})",
+            index + 1,
+            parsed_stmt.sql,
+            parsed_stmt.statement_type
+        );
 
         let result = match parsed_stmt.statement_type {
-            SqlStatementType::Query => {
-                execute_query(client, &parsed_stmt.sql).await
-            }
-            SqlStatementType::NonQuery => {
-                execute_non_query(client, &parsed_stmt.sql).await
-            }
+            SqlStatementType::Query => execute_query(client, &parsed_stmt.sql).await,
+            SqlStatementType::NonQuery => execute_non_query(client, &parsed_stmt.sql).await,
             SqlStatementType::Unknown => {
                 // 对于未知类型，尝试查询方式，如果失败再尝试非查询方式
                 match execute_query(client, &parsed_stmt.sql).await {
@@ -1022,8 +1036,10 @@ pub async fn search_procedure_suggestions(
         .map_err(|e| DatabaseError::QueryError(format!("查询存储过程失败: {}", e)))?;
 
     // 用于组织数据的临时结构
-    let mut procedures_map: std::collections::HashMap<i32, (String, String)> = std::collections::HashMap::new();
-    let mut parameters_map: std::collections::HashMap<i32, Vec<ParameterInfo>> = std::collections::HashMap::new();
+    let mut procedures_map: std::collections::HashMap<i32, (String, String)> =
+        std::collections::HashMap::new();
+    let mut parameters_map: std::collections::HashMap<i32, Vec<ParameterInfo>> =
+        std::collections::HashMap::new();
 
     // 处理查询结果
     while let Ok(Some(query_item)) = stream.try_next().await {
@@ -1035,7 +1051,10 @@ pub async fn search_procedure_suggestions(
 
             if result_type == 1 {
                 // 存储过程基本信息
-                procedures_map.insert(object_id, (schema_name.to_string(), procedure_name.to_string()));
+                procedures_map.insert(
+                    object_id,
+                    (schema_name.to_string(), procedure_name.to_string()),
+                );
             } else if result_type == 2 {
                 // 参数信息
                 let param_name: &str = row.get("parameter_name").unwrap_or("");
@@ -1053,7 +1072,8 @@ pub async fn search_procedure_suggestions(
                         has_default,
                     };
 
-                    parameters_map.entry(object_id)
+                    parameters_map
+                        .entry(object_id)
                         .or_insert_with(Vec::new)
                         .push(param_info);
                 }
@@ -1064,9 +1084,10 @@ pub async fn search_procedure_suggestions(
     // 组装最终结果
     for (object_id, (schema_name, procedure_name)) in procedures_map {
         let parameters = parameters_map.get(&object_id).cloned().unwrap_or_default();
-        
+
         // 生成执行模板
-        let execute_template = generate_execute_template(&schema_name, &procedure_name, &parameters);
+        let execute_template =
+            generate_execute_template(&schema_name, &procedure_name, &parameters);
 
         let suggestion_item = ProcedureSuggestionItem {
             name: procedure_name.clone(),
@@ -1081,7 +1102,8 @@ pub async fn search_procedure_suggestions(
 
     // 按照原来的排序逻辑排序结果
     results.sort_by(|a, b| {
-        a.schema_name.cmp(&b.schema_name)
+        a.schema_name
+            .cmp(&b.schema_name)
             .then_with(|| a.name.cmp(&b.name))
     });
 
@@ -1096,7 +1118,8 @@ pub async fn search_procedure_suggestions_advanced(
     let mut results = Vec::new();
 
     // 使用临时表和多结果集的高级SQL查询
-    let advanced_query = format!(r#"
+    let advanced_query = format!(
+        r#"
         -- 创建临时表存储匹配的存储过程
         CREATE TABLE #ProcedureMatches (
             object_id INT PRIMARY KEY, -- 添加主键以提高性能并确保唯一性
@@ -1162,7 +1185,9 @@ pub async fn search_procedure_suggestions_advanced(
 
         -- 清理临时表
         DROP TABLE #ProcedureMatches;
-    "#, keyword, keyword);
+    "#,
+        keyword, keyword
+    );
 
     // 使用 simple_query 执行多结果集查询
     match client.simple_query(&advanced_query).await {
@@ -1171,26 +1196,37 @@ pub async fn search_procedure_suggestions_advanced(
                 Ok(result_sets) => {
                     if result_sets.len() >= 2 {
                         // 处理第一个结果集：存储过程基本信息
-                        let mut procedures_info: std::collections::HashMap<i32, (String, String, i32)> = 
-                            std::collections::HashMap::new();
-                        
+                        let mut procedures_info: std::collections::HashMap<
+                            i32,
+                            (String, String, i32),
+                        > = std::collections::HashMap::new();
+
                         for row in &result_sets[0] {
                             let object_id: i32 = row.get("object_id").unwrap_or(0);
-                            let schema_name: String = row.get::<&str, _>("schema_name").unwrap_or("").to_string();
-                            let procedure_name: String = row.get::<&str, _>("procedure_name").unwrap_or("").to_string();
+                            let schema_name: String =
+                                row.get::<&str, _>("schema_name").unwrap_or("").to_string();
+                            let procedure_name: String = row
+                                .get::<&str, _>("procedure_name")
+                                .unwrap_or("")
+                                .to_string();
                             let parameter_count: i32 = row.get("parameter_count").unwrap_or(0);
-                            
-                            procedures_info.insert(object_id, (schema_name, procedure_name, parameter_count));
+
+                            procedures_info
+                                .insert(object_id, (schema_name, procedure_name, parameter_count));
                         }
 
                         // 处理第二个结果集：参数详细信息
-                        let mut parameters_map: std::collections::HashMap<i32, Vec<ParameterInfo>> = 
+                        let mut parameters_map: std::collections::HashMap<i32, Vec<ParameterInfo>> =
                             std::collections::HashMap::new();
-                        
+
                         for row in &result_sets[1] {
                             let object_id: i32 = row.get("object_id").unwrap_or(0);
-                            let param_name: String = row.get::<&str, _>("parameter_name").unwrap_or("").to_string();
-                            let data_type: String = row.get::<&str, _>("data_type").unwrap_or("").to_string();
+                            let param_name: String = row
+                                .get::<&str, _>("parameter_name")
+                                .unwrap_or("")
+                                .to_string();
+                            let data_type: String =
+                                row.get::<&str, _>("data_type").unwrap_or("").to_string();
                             let max_length: i16 = row.get("max_length").unwrap_or(0);
                             let precision: u8 = row.get("precision").unwrap_or(0);
                             let scale: u8 = row.get("scale").unwrap_or(0);
@@ -1226,23 +1262,35 @@ pub async fn search_procedure_suggestions_advanced(
                                 let param_info = ParameterInfo {
                                     name: param_name,
                                     data_type: formatted_data_type,
-                                    max_length: if max_length > 0 { Some(max_length) } else { None },
+                                    max_length: if max_length > 0 {
+                                        Some(max_length)
+                                    } else {
+                                        None
+                                    },
                                     is_output,
                                     has_default,
                                 };
 
-                                parameters_map.entry(object_id)
+                                parameters_map
+                                    .entry(object_id)
                                     .or_insert_with(Vec::new)
                                     .push(param_info);
                             }
                         }
 
                         // 组装最终结果
-                        for (object_id, (schema_name, procedure_name, _parameter_count)) in procedures_info {
-                            let parameters = parameters_map.get(&object_id).cloned().unwrap_or_default();
-                            
+                        for (object_id, (schema_name, procedure_name, _parameter_count)) in
+                            procedures_info
+                        {
+                            let parameters =
+                                parameters_map.get(&object_id).cloned().unwrap_or_default();
+
                             // 生成执行模板
-                            let execute_template = generate_execute_template(&schema_name, &procedure_name, &parameters);
+                            let execute_template = generate_execute_template(
+                                &schema_name,
+                                &procedure_name,
+                                &parameters,
+                            );
 
                             let suggestion_item = ProcedureSuggestionItem {
                                 name: procedure_name.clone(),
@@ -1257,18 +1305,25 @@ pub async fn search_procedure_suggestions_advanced(
                     }
                 }
                 Err(e) => {
-                    return Err(DatabaseError::QueryError(format!("处理多结果集失败: {}", e)));
+                    return Err(DatabaseError::QueryError(format!(
+                        "处理多结果集失败: {}",
+                        e
+                    )));
                 }
             }
         }
         Err(e) => {
-            return Err(DatabaseError::QueryError(format!("执行高级查询失败: {}", e)));
+            return Err(DatabaseError::QueryError(format!(
+                "执行高级查询失败: {}",
+                e
+            )));
         }
     }
 
     // 按照优先级和名称排序
     results.sort_by(|a, b| {
-        a.schema_name.cmp(&b.schema_name)
+        a.schema_name
+            .cmp(&b.schema_name)
             .then_with(|| a.name.cmp(&b.name))
     });
 
@@ -1282,21 +1337,25 @@ fn generate_execute_template(
     parameters: &[ParameterInfo],
 ) -> String {
     let mut template = String::new();
-    
+
     if parameters.is_empty() {
         // 无参数的存储过程
         template.push_str(&format!("[{}].[{}]", schema_name, procedure_name));
     } else {
         // 有参数的存储过程
         template.push_str(&format!(" [{}].[{}]\n", schema_name, procedure_name));
-        
+
         for (index, param) in parameters.iter().enumerate() {
             let param_line = if param.is_output {
                 // 输出参数
                 if param.has_default {
                     format!("    {} = NULL OUTPUT", param.name)
                 } else {
-                    format!("    {} = @{} OUTPUT", param.name, param.name.trim_start_matches('@'))
+                    format!(
+                        "    {} = @{} OUTPUT",
+                        param.name,
+                        param.name.trim_start_matches('@')
+                    )
                 }
             } else {
                 // 输入参数
@@ -1316,7 +1375,7 @@ fn generate_execute_template(
                     format!("    {} = {}", param.name, default_value)
                 }
             };
-            
+
             // 添加逗号（除了最后一个参数）
             if index < parameters.len() - 1 {
                 template.push_str(&format!("{},\n", param_line));
@@ -1325,6 +1384,6 @@ fn generate_execute_template(
             }
         }
     }
-    
+
     template
 }

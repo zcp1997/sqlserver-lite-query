@@ -564,6 +564,7 @@ const SqlEditor = forwardRef<SqlEditorRef, SqlEditorProps>(({
             readOnly,
             fontSize: fontSize,
             fontFamily: [
+              '"Sarasa Mono SC"',
               '"JetBrainsMono"',
               '"Source Code Pro"',      // 更好的中文兼容性
               '"Microsoft YaHei Mono"', // Windows 中文等宽

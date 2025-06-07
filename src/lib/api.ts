@@ -74,8 +74,7 @@ export async function executeQuery(session_id: string, sql: string): Promise<Que
         columns: [],
         rows: [],
         error: `查询执行失败: ${error}`
-      }],
-      error: `查询执行失败: ${error}`
+      }]
     }
   }
 }
@@ -100,8 +99,7 @@ export async function executeNonQuery(session_id: string, sql: string): Promise<
         columns: [],
         rows: [],
         error: `执行失败: ${error}`
-      }],
-      error: `执行失败: ${error}`
+      }]
     }
   }
 }

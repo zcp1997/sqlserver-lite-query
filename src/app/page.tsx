@@ -61,7 +61,7 @@ export default function SqlWorkbenchPage() {
   } = useSqlTabs(activeSession)
 
   // 使用SQL执行逻辑
-  const { isExecuting, queryResult, error, executeCurrentQuery, stopExecution } = useSqlExecution()
+  const { isExecuting, queryResult, executeCurrentQuery, stopExecution } = useSqlExecution()
 
   // 数据库对象对话框状态
   const [dbObjectDialogOpen, setDbObjectDialogOpen] = useState(false)
@@ -335,7 +335,6 @@ export default function SqlWorkbenchPage() {
         activeSession={activeSession}
         isExecuting={isExecuting}
         queryResult={queryResult}
-        error={error}
         onSelectionChange={handleSelectionChange}
         fontSize={fontSize}
       />

@@ -2,7 +2,6 @@ import React, { forwardRef, useImperativeHandle, useRef, useState, useEffect } f
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from '@/components/ui/resizable'
 import SqlEditor, { SqlEditorRef } from '@/components/sql/SqlEditor'
 import ResultPanel from '@/components/sql/ResultPanel'
-import { AlertCircleIcon } from 'lucide-react'
 import { QueryResult, QuerySession as Session } from '@/types/database'
 
 interface QueryWorkspaceProps {
@@ -11,7 +10,6 @@ interface QueryWorkspaceProps {
   activeSession: Session | null;
   isExecuting: boolean;
   queryResult: QueryResult | null;
-  error: string | null;
   onSelectionChange?: (selectedText: string) => void;
   fontSize?: number; // 新增：字体大小
 }
@@ -27,7 +25,6 @@ const QueryWorkspace = forwardRef<QueryWorkspaceRef, QueryWorkspaceProps>(({
   activeSession,
   isExecuting,
   queryResult,
-  error,
   onSelectionChange,
   fontSize = 14 // 新增：字体大小，默认14
 }, ref) => {
@@ -38,10 +35,10 @@ const QueryWorkspace = forwardRef<QueryWorkspaceRef, QueryWorkspaceProps>(({
 
   // 当有查询结果或错误时显示结果面板
   useEffect(() => {
-    if (queryResult || error) {
+    if (queryResult) {
       setShowResultPanel(true)
     }
-  }, [queryResult, error])
+  }, [queryResult])
 
   // 暴露格式化方法给父组件
   useImperativeHandle(ref, () => ({
@@ -89,26 +86,7 @@ const QueryWorkspace = forwardRef<QueryWorkspaceRef, QueryWorkspaceProps>(({
 
           {/* 结果面板 */}
           <ResizablePanel defaultSize={50} minSize={20}>
-            {error ? (
-              <div className="h-full flex flex-col p-4">
-                <div className="bg-destructive/5 border border-destructive/20 rounded-lg p-4 max-w-2xl">
-                  <div className="flex items-start gap-3">
-                    <div className="flex-shrink-0 w-6 h-6 bg-destructive/10 rounded-full flex items-center justify-center">
-                      <AlertCircleIcon className="h-4 w-4 text-destructive" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <h3 className="text-sm font-medium text-destructive mb-2">查询执行失败</h3>
-                      <div className="bg-background rounded-md border p-3">
-                        <pre className="text-xs text-muted-foreground whitespace-pre-wrap font-mono leading-relaxed">
-                          {error}
-                        </pre>
-                      </div>
-                      <p className="text-xs text-muted-foreground mt-2">请检查SQL语法或联系管理员获取帮助</p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            ) : queryResult ? (
+            {queryResult ? (
               <ResultPanel 
                 result={queryResult} 
                 isLoading={isExecuting} 

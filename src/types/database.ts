@@ -66,7 +66,6 @@ export interface ResultSet {
 // 查询结果 - 支持多结果集
 export interface QueryResult {
   result_sets: ResultSet[]
-  error?: string
   execution_time?: number  // 执行时间，单位为秒
 }
 

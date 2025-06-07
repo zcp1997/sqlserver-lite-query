@@ -201,7 +201,7 @@ const formatRowCount = (count: number): string => {
   } else if (count >= 1000) {
     return `${(count / 1000).toFixed(1)}K`
   }
-  return count.toString()
+  return count ? count.toString() : '0'
 };
 
 const ResultPanel: React.FC<ResultPanelProps> = ({ result, isLoading = false, onClose }) => {
@@ -345,23 +345,11 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, isLoading = false, on
     )
   }
 
-  if (!result || (!result.result_sets && !result.error) || (result.result_sets && result.result_sets.length === 0 && !result.error)) {
+  if (!result || (!result.result_sets) || (result.result_sets && result.result_sets.length === 0)) {
     return (
       <div className="h-full flex items-center justify-center text-muted-foreground">
         <DatabaseIcon className="h-8 w-8 mr-3" />
         <span>没有查询结果</span>
-      </div>
-    )
-  }
-
-  if (result.error) {
-    return (
-      <div className="h-full flex items-center justify-center text-destructive p-4">
-        <XIcon className="h-8 w-8 mr-3" />
-        <div className="flex flex-col">
-          <span>查询出错:</span>
-          <span className="text-sm">{result.error}</span>
-        </div>
       </div>
     )
   }
@@ -477,7 +465,15 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, isLoading = false, on
               </div>
 
               <div className="flex-1 overflow-hidden">
-                {tab.resultSet.columns && tab.resultSet.columns.length > 0 ? (
+                {tab.resultSet.error ? (
+                  <div className="h-full flex items-center justify-center text-destructive p-4">
+                    <XIcon className="h-8 w-8 mr-3" />
+                    <div className="flex flex-col">
+                      <span>查询出错:</span>
+                      <span className="text-sm">{tab.resultSet.error}</span>
+                    </div>
+                  </div>
+                ) : tab.resultSet.columns && tab.resultSet.columns.length > 0 ? (
                   <div className="ag-theme-quartz h-full w-full">
                     <AgGridReact
                       theme={theme}
