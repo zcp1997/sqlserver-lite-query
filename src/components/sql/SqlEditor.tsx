@@ -563,17 +563,7 @@ const SqlEditor = forwardRef<SqlEditorRef, SqlEditorProps>(({
             tabSize: 2,
             readOnly,
             fontSize: fontSize,
-            fontFamily: [
-              '"Sarasa Mono SC"',
-              '"JetBrainsMono"',
-              '"Source Code Pro"',      // 更好的中文兼容性
-              '"Microsoft YaHei Mono"', // Windows 中文等宽
-              '"PingFang SC"',          // macOS 中文
-              '"Noto Sans Mono CJK SC"',// Linux 中文等宽
-              '"Consolas"',             // Windows fallback
-              '"Monaco"',               // macOS fallback
-              'Courier New'               // 系统 fallback
-            ].join(', '),
+            fontFamily: 'var(--font-inter), var(--font-jetbrains)',
             fontLigatures: true,
             // 增加这些配置改善中文显示
             wordWrap: 'on',
