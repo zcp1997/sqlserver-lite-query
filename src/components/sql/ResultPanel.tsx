@@ -18,6 +18,19 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from '@/components/ui/command'
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover'
+import {
   TableIcon,
   DownloadIcon,
   InfoIcon,
@@ -28,6 +41,8 @@ import {
   ClockIcon,
   SettingsIcon,
   ZapIcon,
+  ChevronDownIcon,
+  ColumnsIcon,
 } from 'lucide-react'
 import { useTheme } from "next-themes"
 
@@ -176,6 +191,8 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, isLoading = false, on
   const [activeTab, setActiveTab] = useState<string>('');
   const [gridApis, setGridApis] = useState<Record<string, GridApi>>({});
   const [quickFilterText, setQuickFilterText] = useState('');
+  const [columnSearchOpen, setColumnSearchOpen] = useState(false);
+  const [selectedColumn, setSelectedColumn] = useState<string>('');
   const { resolvedTheme } = useTheme();
   const quickFilterTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -233,6 +250,12 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, isLoading = false, on
     }
   }, [tabsData, activeTab]);
 
+  // 当切换tab时，重置选中的列
+  useEffect(() => {
+    setSelectedColumn('');
+    setColumnSearchOpen(false);
+  }, [activeTab]);
+
   const onGridReady = useCallback((params: GridReadyEvent, tabId: string) => {
     setGridApis(prev => ({ ...prev, [tabId]: params.api }));
   }, []);
@@ -265,6 +288,39 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, isLoading = false, on
       setTimeout(() => gridApi.autoSizeAllColumns(), 0);
     }
   }, [gridApis]);
+
+  const scrollToColumn = useCallback((columnName: string) => {
+    const gridApi = gridApis[activeTab];
+    if (gridApi && columnName) {
+      try {
+        // 滚动到指定列
+        gridApi.ensureColumnVisible(columnName);
+        // 可选：高亮显示该列（通过设置焦点）
+        gridApi.setFocusedCell(0, columnName);
+        setSelectedColumn(columnName);
+        setColumnSearchOpen(false);
+        
+        toast.success("列跳转成功", {
+          description: `已定位到列 "${columnName}"`,
+        });
+      } catch (error) {
+        toast.error("跳转失败", {
+          description: "未找到指定列",
+        });
+      }
+    }
+  }, [gridApis, activeTab, toast]);
+
+  // 获取当前激活标签页的列信息（优化性能）
+  const activeTabColumns = useMemo(() => {
+    const activeTabData = tabsData.find(tab => tab.id === activeTab);
+    if (!activeTabData?.resultSet.columns) return [];
+    
+    return activeTabData.resultSet.columns.map((columnName, index) => ({
+      name: columnName,
+      type: activeTabData.resultSet.column_types?.[index] || '未知类型'
+    }));
+  }, [tabsData, activeTab]);
 
   if (isLoading) {
     return (
@@ -345,6 +401,61 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, isLoading = false, on
                           aria-label="搜索所有数据"
                         />
                       </div>
+                      {/* 列名搜索下拉框 */}
+                      <Popover open={columnSearchOpen} onOpenChange={setColumnSearchOpen}>
+                        <PopoverTrigger asChild>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-8 min-w-[140px] justify-between text-sm"
+                            disabled={activeTabColumns.length === 0}
+                            aria-label="跳转到指定列"
+                            title={selectedColumn ? `当前选中: ${selectedColumn}，点击重新选择列` : "点击选择要跳转的列"}
+                          >
+                            <div className="flex items-center gap-1">
+                              <ColumnsIcon className="h-4 w-4" />
+                              <span className="truncate">
+                                {selectedColumn || "跳转到列"}
+                              </span>
+                            </div>
+                            <ChevronDownIcon className="h-4 w-4 opacity-50" />
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-80 p-0" align="start">
+                          <Command
+                            onKeyDown={(e) => {
+                              // 支持 Enter 键选择高亮的项
+                              if (e.key === 'Escape') {
+                                setColumnSearchOpen(false);
+                              }
+                            }}
+                          >
+                            <CommandInput 
+                              placeholder="输入列名快速定位..." 
+                              className="h-9"
+                            />
+                            <CommandList className="max-h-[200px]">
+                              <CommandEmpty>未找到匹配的列名</CommandEmpty>
+                              <CommandGroup heading="选择列名快速跳转到表格位置">
+                                {activeTabColumns.map((column) => (
+                                  <CommandItem
+                                    key={column.name}
+                                    value={column.name}
+                                    onSelect={() => scrollToColumn(column.name)}
+                                    className="flex items-center gap-2 cursor-pointer"
+                                  >
+                                    <ColumnsIcon className="h-4 w-4" />
+                                    <div className="flex-1 min-w-0">
+                                      <div className="font-medium truncate">{column.name}</div>
+                                      <div className="text-xs text-muted-foreground">{column.type}</div>
+                                    </div>
+                                  </CommandItem>
+                                ))}
+                              </CommandGroup>
+                            </CommandList>
+                          </Command>
+                        </PopoverContent>
+                      </Popover>
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
