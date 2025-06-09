@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState, useEffect, useRef, useCallback } from 'react'
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { AgGridReact } from 'ag-grid-react'
 import { AllCommunityModule, ModuleRegistry, ColDef, GridReadyEvent, GridApi, themeQuartz, colorSchemeDark, colorSchemeLightWarm } from 'ag-grid-community'
 import { AG_GRID_LOCALE_CN } from '@ag-grid-community/locale'
@@ -28,7 +28,6 @@ import {
   ClockIcon,
   SettingsIcon,
   ZapIcon,
-  RulerIcon,
 } from 'lucide-react'
 import { useTheme } from "next-themes"
 
@@ -59,52 +58,37 @@ const DEFAULT_CONFIG: ColumnWidthConfig = {
   sampleSize: 100
 };
 
-// 计算文本显示宽度（支持中英文混合）
 const calculateTextWidth = (text: string, config: ColumnWidthConfig): number => {
   if (!text || typeof text !== 'string') return 0;
-
   let width = 0;
   for (let i = 0; i < text.length; i++) {
     const char = text[i];
-    // 更精确的中文字符判断，包括中文标点符号
     if (/[\u4e00-\u9fff\u3400-\u4dbf\uff00-\uffef\u3000-\u303f]/.test(char)) {
       width += config.chineseCharWidth;
     } else if (/[A-Z]/.test(char)) {
-      // 大写字母通常比小写字母宽一些
       width += config.baseCharWidth * 1.1;
     } else if (/\d/.test(char)) {
-      // 数字字符通常比字母稍窄
       width += config.baseCharWidth * 0.9;
     } else {
       width += config.baseCharWidth;
     }
   }
-  return Math.ceil(width); // 向上取整，确保不会截断
+  return Math.ceil(width);
 };
 
-// 计算单列最适宜宽度
 const calculateColumnWidth = (
   columnName: string,
   columnData: any[],
   config: ColumnWidthConfig = DEFAULT_CONFIG
 ): number => {
-  // 1. 计算列头宽度
   const headerTextWidth = calculateTextWidth(columnName, config);
-
-  // 2. 为AG Grid的UI元素预留额外空间
-  // - 排序图标: ~20px
-  // - 筛选按钮: ~20px  
-  // - 列调整手柄: ~10px
-  // - 内边距: ~20px
-  const agGridUISpace = 70; // AG Grid UI元素总占用空间
+  const agGridUISpace = 70;
   const headerTotalWidth = headerTextWidth + agGridUISpace;
 
-  // 3. 如果没有数据，基于列头宽度返回
   if (!columnData || columnData.length === 0) {
     return Math.max(config.minWidth, Math.min(headerTotalWidth, config.maxWidth));
   }
 
-  // 4. 采样数据以提高性能
   const sampleData = columnData.length > config.sampleSize
     ? [
       ...columnData.slice(0, Math.floor(config.sampleSize * 0.7)),
@@ -112,75 +96,28 @@ const calculateColumnWidth = (
     ]
     : columnData;
 
-  // 5. 计算内容的最大宽度
   let maxContentWidth = 0;
   for (const value of sampleData) {
     if (value === null || value === undefined) {
-      // NULL 值显示为 "NULL"，也需要计算宽度
       const nullWidth = calculateTextWidth('NULL', config);
       maxContentWidth = Math.max(maxContentWidth, nullWidth);
       continue;
     }
-
     const textValue = String(value);
     const contentWidth = calculateTextWidth(textValue, config);
     maxContentWidth = Math.max(maxContentWidth, contentWidth);
   }
 
-  // 6. 内容宽度也需要加上基本的单元格padding
   const contentTotalWidth = maxContentWidth + config.padding;
-
-  // 7. 取列头和内容宽度的最大值
   const finalWidth = Math.max(headerTotalWidth, contentTotalWidth);
-
-  // 8. 限制在最小和最大宽度范围内
   return Math.max(config.minWidth, Math.min(finalWidth, config.maxWidth));
 };
 
-// 简化的单元格渲染器
-const nullCellRenderer = (params: any) => {
-  if (params.value === null || params.value === undefined) {
-    return (
-      <span
-        style={{
-          backgroundColor: '#FFFFE0',
-          color: '#999',
-          fontStyle: 'italic',
-        }}
-      >
-        NULL
-      </span>
-    );
-  }
-  return params.value;
-};
-
-
-// 更简洁的方式是创建专门的日期单元格渲染器
-const dateCellRenderer = (params: any) => {
-  if (params.value === null || params.value === undefined) {
-    return <span
-      style={{
-        backgroundColor: '#FFFFE0',
-        color: '#999',
-        fontStyle: 'italic',
-      }}
-    >
-      NULL
-    </span>
-  }
-  // 对于日期列，直接使用格式化函数
-  const formattedDate = dateFormatter(params);
-  return formattedDate;
-};
-
-// 日期格式化器
 const dateFormatter = (params: any) => {
   if (!params.value) return '';
   try {
     const date = new Date(params.value);
     if (!isNaN(date.getTime())) {
-      // 格式化为 yyyy-MM-dd HH:mm:ss.SSS
       const year = date.getFullYear();
       const month = String(date.getMonth() + 1).padStart(2, '0');
       const day = String(date.getDate()).padStart(2, '0');
@@ -194,15 +131,45 @@ const dateFormatter = (params: any) => {
   return params.value;
 };
 
-// 格式化行数显示
 const formatRowCount = (count: number): string => {
-  if (count >= 1000000) {
-    return `${(count / 1000000).toFixed(1)}M`
-  } else if (count >= 1000) {
-    return `${(count / 1000).toFixed(1)}K`
-  }
-  return count ? count.toString() : '0'
+  if (count >= 1000000) return `${(count / 1000000).toFixed(1)}M`;
+  if (count >= 1000) return `${(count / 1000).toFixed(1)}K`;
+  return count ? count.toString() : '0';
 };
+
+const NullCellRenderer = (params: any) => {
+  if (params.value === null || params.value === undefined) {
+    return (
+      <span style={{ fontStyle: 'italic', color: '#999', backgroundColor: '#FFFFE0', }}>
+        NULL
+      </span>
+    );
+  }
+  return params.value;
+};
+
+const DateCellRenderer = (params: any) => {
+  if (params.value === null || params.value === undefined) {
+    return <NullCellRenderer {...params} />;
+  }
+  return dateFormatter(params);
+};
+
+const CustomInnerHeader = React.memo((props: any) => {
+  const { displayName, columnType } = props;
+  return (
+    <div className="flex items-center gap-2 min-w-0">
+      <span className="font-medium truncate">{displayName}</span>
+      <span className="text-xs text-muted-foreground bg-muted/60 px-1.5 py-0.5 rounded shrink-0">
+        {columnType}
+      </span>
+    </div>
+  );
+});
+CustomInnerHeader.displayName = 'CustomInnerHeader';
+
+
+// --- 主组件 ---
 
 const ResultPanel: React.FC<ResultPanelProps> = ({ result, isLoading = false, onClose }) => {
   const { toast } = useToast();
@@ -216,97 +183,71 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, isLoading = false, on
     ? themeQuartz.withPart(colorSchemeDark)
     : themeQuartz.withPart(colorSchemeLightWarm);
 
-  const tabsData = result?.result_sets?.map((resultSet, index) => ({
-    id: `result-${index}`,
-    title: `结果 ${index + 1}`,
-    resultSet,
-    rowCount: resultSet.rows?.length || 0,
-    affectedRows: resultSet.affected_rows
-  })) || [];
+  // --- 优化点 2: 使用 useMemo 缓存 tabsData 和 columnDefs ---
+  const tabsData = useMemo(() => {
+    if (!result?.result_sets) return [];
+
+    const generateColumnDefs = (resultSet: ResultSet): ColDef[] => {
+      if (!resultSet.columns || resultSet.columns.length === 0) return [];
+
+      return resultSet.columns.map((columnName, index) => {
+        const columnType = resultSet.column_types?.[index] || '';
+        const columnData = resultSet.rows?.map(row => row[columnName]) || [];
+        const isDateColumn = columnType === 'Datetime' || columnType === 'Datetimen';
+
+        let calculatedWidth = calculateColumnWidth(columnName, columnData, DEFAULT_CONFIG);
+        const typeTagWidth = calculateTextWidth(columnType, DEFAULT_CONFIG) + 20;
+        // 确保列宽足以容纳列头文本和类型标签
+        calculatedWidth = Math.max(calculatedWidth, calculateTextWidth(columnName, DEFAULT_CONFIG) + typeTagWidth + 70);
+
+        return {
+          headerName: columnName,
+          field: columnName,
+          width: calculatedWidth,
+          minWidth: Math.max(DEFAULT_CONFIG.minWidth, 140),
+          headerComponentParams: {
+            innerHeaderComponent: CustomInnerHeader,
+            innerHeaderComponentParams: {
+              displayName: columnName,
+              columnType: columnType
+            }
+          },
+          cellRenderer: isDateColumn ? DateCellRenderer : NullCellRenderer,
+        };
+      });
+    };
+
+    return result.result_sets.map((resultSet, index) => ({
+      id: `result-${index}`,
+      title: `结果 ${index + 1}`,
+      resultSet,
+      rowCount: resultSet.rows?.length || 0,
+      affectedRows: resultSet.affected_rows,
+      columnDefs: generateColumnDefs(resultSet), // 在这里一次性计算并缓存
+    }));
+  }, [result]); // 依赖项是 result，只有 result 变化时才重新计算
 
   useEffect(() => {
     if (tabsData.length > 0 && !activeTab) {
       setActiveTab(tabsData[0].id);
     }
-  }, [tabsData.length]);
+  }, [tabsData, activeTab]);
 
-  // 自定义Inner Header组件 - 只替换文本显示，保留AG Grid原生功能
-  const CustomInnerHeaderComponent = (props: any) => {
-    const { displayName, columnType } = props;
-
-    return (
-      <div className="flex items-center gap-2 min-w-0">
-        <span className="font-medium truncate">{displayName}</span>
-        <span className="text-xs text-muted-foreground bg-muted/60 px-1.5 py-0.5 rounded shrink-0">
-          {columnType}
-        </span>
-      </div>
-    );
-  };
-
-  // 生成带有自定义inner header和自动宽度的列定义
-  const generateColumnDefs = useCallback((resultSet: ResultSet): ColDef[] => {
-    if (!resultSet.columns || resultSet.columns.length === 0) return [];
-
-    // 计算每列的最适宜宽度（需要考虑列类型标签的额外宽度）
-    const columnWidths: Record<string, number> = {};
-
-    for (let i = 0; i < resultSet.columns.length; i++) {
-      const columnName = resultSet.columns[i];
-      const columnType = resultSet.column_types?.[i] || '';
-      const columnData = resultSet.rows?.map(row => row[columnName]) || [];
-
-      // 计算基础宽度
-      let calculatedWidth = calculateColumnWidth(columnName, columnData, DEFAULT_CONFIG);
-
-      // 为列类型标签预留额外空间
-      const typeTagWidth = calculateTextWidth(columnType, DEFAULT_CONFIG) + 20; // 20px for padding and margins
-      calculatedWidth = Math.max(calculatedWidth, calculatedWidth + typeTagWidth);
-
-      columnWidths[columnName] = calculatedWidth;
-    }
-
-    return resultSet.columns.map((columnName, index) => {
-      const columnType = resultSet.column_types?.[index] || '';
-      const isDateColumn = columnType === 'Datetime' || columnType === 'Datetimen';
-      const calculatedWidth = columnWidths[columnName];
-
-      return {
-        headerName: columnName,
-        field: columnName,
-        sortable: true,
-        filter: true,
-        resizable: true,
-        width: calculatedWidth,
-        minWidth: Math.max(DEFAULT_CONFIG.minWidth, 140), // 增加最小宽度以容纳标签和按钮
-        headerComponentParams: {
-          innerHeaderComponent: CustomInnerHeaderComponent,
-          innerHeaderComponentParams: {
-            displayName: columnName,
-            columnType: columnType
-          }
-        },
-        cellRenderer: isDateColumn ? dateCellRenderer : nullCellRenderer,
-        suppressSizeToFit: false,
-      };
-    });
+  const onGridReady = useCallback((params: GridReadyEvent, tabId: string) => {
+    setGridApis(prev => ({ ...prev, [tabId]: params.api }));
   }, []);
 
-  const onGridReady = (params: GridReadyEvent, tabId: string) => {
-    setGridApis(prev => ({ ...prev, [tabId]: params.api }));
-  };
-
-  const exportToCsv = (tabId: string) => {
+  const exportToCsv = useCallback((tabId: string) => {
     const gridApi = gridApis[tabId];
     if (gridApi) {
       const now = new Date();
-      const timestamp = now.toLocaleString('sv-SE', {
-        timeZone: 'Asia/Shanghai'
-      }).replace(/[\s:]/g, '-');
+      const timestamp = now.toLocaleString('sv-SE', { timeZone: 'Asia/Shanghai' }).replace(/[\s:]/g, '-');
       gridApi.exportDataAsCsv({ fileName: `query_result_${timestamp}.csv` });
-      toast.success('导出成功', { description: '数据已导出为CSV文件' });
+      toast.success("导出成功", {
+        description: "数据已导出为CSV文件。"
+      });
     }
-  };
+  }, [gridApis, toast]);
 
   const handleQuickFilterChange = (value: string) => {
     if (quickFilterTimeoutRef.current) {
@@ -320,21 +261,10 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, isLoading = false, on
   const autoSizeColumns = useCallback((tabId: string) => {
     const gridApi = gridApis[tabId];
     if (gridApi) {
+      // 使用 setTimeout 确保在 DOM 更新后执行
       setTimeout(() => gridApi.autoSizeAllColumns(), 0);
     }
   }, [gridApis]);
-
-  // 重新计算列宽（手动触发）
-  const recalculateColumnWidths = useCallback((tabId: string) => {
-    const gridApi = gridApis[tabId];
-    if (gridApi) {
-      const tab = tabsData.find(t => t.id === tabId);
-      if (tab) {
-        const newColumnDefs = generateColumnDefs(tab.resultSet);
-        gridApi.setGridOption('columnDefs', newColumnDefs);
-      }
-    }
-  }, [gridApis, tabsData, generateColumnDefs, toast]);
 
   if (isLoading) {
     return (
@@ -345,7 +275,7 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, isLoading = false, on
     )
   }
 
-  if (!result || (!result.result_sets) || (result.result_sets && result.result_sets.length === 0)) {
+  if (!tabsData || tabsData.length === 0) {
     return (
       <div className="h-full flex items-center justify-center text-muted-foreground">
         <DatabaseIcon className="h-8 w-8 mr-3" />
@@ -393,11 +323,6 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, isLoading = false, on
                     <div className="flex items-center gap-2">
                       <InfoIcon className="h-4 w-4 text-muted-foreground" />
                       <span className="text-sm text-muted-foreground">
-                        {/* {tab.affectedRows !== undefined ? (
-                          <>影响了 <strong>{tab.affectedRows.toLocaleString()}</strong> 行</>
-                        ) : (
-                          <>返回 <strong>{tab.rowCount.toLocaleString()}</strong> 行数据</>
-                        )} */}
                         返回 <strong>{tab.rowCount.toLocaleString()}</strong> 行数据
                       </span>
                     </div>
@@ -431,20 +356,12 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, isLoading = false, on
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end" className="w-52">
-
                         <DropdownMenuItem
                           onClick={() => autoSizeColumns(tab.id)}
                           disabled={!gridApis[tab.id]}
                         >
                           <ZapIcon className="h-4 w-4 mr-2" />
                           自适应列宽
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          onClick={() => recalculateColumnWidths(tab.id)}
-                          disabled={!gridApis[tab.id]}
-                        >
-                          <RulerIcon className="h-4 w-4 mr-2" />
-                          智能计算列宽
                         </DropdownMenuItem>
                         <DropdownMenuItem
                           onClick={() => exportToCsv(tab.id)}
@@ -480,7 +397,7 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, isLoading = false, on
                       theme={theme}
                       localeText={AG_GRID_LOCALE_CN}
                       rowData={tab.resultSet.rows || []}
-                      columnDefs={generateColumnDefs(tab.resultSet)}
+                      columnDefs={tab.columnDefs} // <-- 使用缓存的列定义
                       defaultColDef={{
                         sortable: true,
                         filter: true,
@@ -489,10 +406,6 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, isLoading = false, on
                       }}
                       onGridReady={(params) => onGridReady(params, tab.id)}
                       animateRows={false}
-                      rowBuffer={10}
-                      debounceVerticalScrollbar={true}
-                      suppressColumnVirtualisation={false}
-                      suppressRowVirtualisation={false}
                       pagination={true}
                       paginationPageSize={100}
                       paginationPageSizeSelector={[50, 100, 200, 500]}
@@ -502,13 +415,6 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, isLoading = false, on
                       headerHeight={40}
                       quickFilterText={quickFilterText}
                       suppressScrollOnNewData={true}
-                      suppressMovableColumns={false}
-                      suppressMenuHide={true}
-                      rowSelection={{
-                        mode: 'singleRow',
-                        checkboxes: false,
-                        enableClickSelection: true
-                      }}
                     />
                   </div>
                 ) : tab.affectedRows !== undefined && tab.affectedRows > 0 ? (
@@ -520,11 +426,6 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, isLoading = false, on
                           操作完成
                         </CardTitle>
                       </CardHeader>
-                      {/* <CardContent>
-                        <p className="text-center text-lg">
-                          成功影响了 <strong className="text-primary">{tab.affectedRows}</strong> 行数据
-                        </p>
-                      </CardContent> */}
                     </Card>
                   </div>
                 ) : (
@@ -544,5 +445,6 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, isLoading = false, on
   )
 };
 
+// --- 优化点 3: 包装整个组件 ---
 ResultPanel.displayName = 'ResultPanel'
-export default ResultPanel
+export default React.memo(ResultPanel);
