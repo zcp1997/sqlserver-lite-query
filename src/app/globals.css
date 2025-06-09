@@ -172,3 +172,15 @@
   /* 3. (核心) 单独设置表头的字重为 700，使其更突出 */
   --ag-header-font-weight: 700;
 }
+
+.ag-cell-null {
+  font-style: italic;
+  color: #999;
+  background-color: #FFFFE0;
+}
+.ag-cell-value {
+  color: inherit;
+}
+.ag-cell-date {
+  color: #2563eb;
+}
