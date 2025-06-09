@@ -393,11 +393,12 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, isLoading = false, on
                     <div className="flex items-center gap-2">
                       <InfoIcon className="h-4 w-4 text-muted-foreground" />
                       <span className="text-sm text-muted-foreground">
-                        {tab.affectedRows !== undefined ? (
+                        {/* {tab.affectedRows !== undefined ? (
                           <>影响了 <strong>{tab.affectedRows.toLocaleString()}</strong> 行</>
                         ) : (
                           <>返回 <strong>{tab.rowCount.toLocaleString()}</strong> 行数据</>
-                        )}
+                        )} */}
+                        返回 <strong>{tab.rowCount.toLocaleString()}</strong> 行数据
                       </span>
                     </div>
                     {result.execution_time !== undefined && (
@@ -519,18 +520,18 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, isLoading = false, on
                           操作完成
                         </CardTitle>
                       </CardHeader>
-                      <CardContent>
+                      {/* <CardContent>
                         <p className="text-center text-lg">
                           成功影响了 <strong className="text-primary">{tab.affectedRows}</strong> 行数据
                         </p>
-                      </CardContent>
+                      </CardContent> */}
                     </Card>
                   </div>
                 ) : (
                   <div className="h-full flex items-center justify-center text-muted-foreground">
                     <div className="text-center">
                       <DatabaseIcon className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                      <p>查询执行成功，但没有返回数据</p>
+                      <p>查询完成</p>
                     </div>
                   </div>
                 )}
