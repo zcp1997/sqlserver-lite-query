@@ -25,7 +25,8 @@
 /* Inter Medium (500) - 推荐用于表格单元格 */
 @font-face {
   font-family: 'Inter';
-  src: url('../../public/fonts/Inter/inter-v19-latin-500.woff2') format('woff2'); /* 这是新增的 */
+  src: url('../../public/fonts/Inter/inter-v19-latin-500.woff2') format('woff2');
+  /* 这是新增的 */
   font-weight: 500;
   font-style: normal;
   font-display: swap;
@@ -34,7 +35,8 @@
 /* Inter SemiBold (700) - 推荐用于表格头部 */
 @font-face {
   font-family: 'Inter';
-  src: url('../../public/fonts/Inter/inter-v19-latin-700.woff2') format('woff2'); /* 这是新增的 */
+  src: url('../../public/fonts/Inter/inter-v19-latin-700.woff2') format('woff2');
+  /* 这是新增的 */
   font-weight: 700;
   font-style: normal;
   font-display: swap;
@@ -42,7 +44,7 @@
 
 :root {
   --radius: 0.625rem;
-  --font-inter: 'Inter', 'JetBrainsMono', 'JetBrainsMono', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-inter: 'Inter', 'Noto Sans Mono CJK SC', 'JetBrainsMono', 'Source Code Pro', 'Microsoft YaHei Mono', 'PingFang SC', 'Consolas', 'Monaco', 'Courier New', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --font-jetbrains: 'Source Code Pro', 'Microsoft YaHei Mono', 'PingFang SC', 'Noto Sans Mono CJK SC', 'Consolas', 'Monaco', 'Courier New', monospace;
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
@@ -161,14 +163,15 @@
 
 /* AG Grid 主题字体配置 - 精确控制字体和粗细 */
 .ag-theme-quartz,
-.ag-theme-quartz-dark { /* 同时为亮色和暗色模式应用规则 */
+.ag-theme-quartz-dark {
+  /* 同时为亮色和暗色模式应用规则 */
 
   /* 1. 直接指定字体族为 'Inter' */
   --ag-font-family: 'Inter', sans-serif;
 
   /* 2. (核心) 设置单元格的默认字重为 500 */
   --ag-font-weight: 500;
-  
+
   /* 3. (核心) 单独设置表头的字重为 700，使其更突出 */
   --ag-header-font-weight: 700;
 }
@@ -178,9 +181,29 @@
   color: #999;
   background-color: #FFFFE0;
 }
+
 .ag-cell-value {
   color: inherit;
 }
+
 .ag-cell-date {
   color: #2563eb;
 }
+
+/* 单元格选中覆盖层样式 */
+.ag-cell-selection-overlay {
+  position: absolute;
+  background-color: rgba(59, 130, 246, 0.2);
+  border: 2px solid #3b82f6;
+  box-sizing: border-box;
+  pointer-events: none;
+  z-index: 10;
+  transition: all 0.1s ease;
+}
+
+/* 深色主题下的选中覆盖层样式 */
+.dark .ag-cell-selection-overlay {
+  background-color: rgba(30, 64, 175, 0.3);
+  border-color: #60a5fa;
+}
+

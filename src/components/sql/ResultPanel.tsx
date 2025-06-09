@@ -79,15 +79,15 @@ const performanceMonitor = {
     const startMark = `${label}-start`;
     const endMark = `${label}-end`;
     performance.mark(startMark);
-  
+
     return () => {
       performance.mark(endMark);
       performance.measure(label, startMark, endMark);
-    
+
       const measure = performance.getEntriesByName(label)[0];
       if (measure) {
         console.log(`${label}: ${measure.duration.toFixed(2)}ms`);
-        if (measure.duration > 100) {
+        if (measure.duration > 1000) {
           console.warn(`${label} is slow (${measure.duration.toFixed(2)}ms), consider optimization`);
         }
       }
@@ -121,16 +121,16 @@ const calculateColumnWidth = (
 ): number => {
   // 计算列名宽度
   const columnNameWidth = calculateTextWidth(columnName, config);
-  
+
   // 计算类型标签宽度（包括背景、padding、rounded等样式空间）
   const columnTypeWidth = columnType ? calculateTextWidth(columnType, config) + 24 : 0; // 24px for padding + background
-  
+
   // 计算标签间的间距（gap-2 = 8px）
   const gapWidth = columnType ? 8 : 0;
-  
+
   // AG-Grid UI 元素空间（排序图标、过滤器图标等）
   const agGridUISpace = 50;
-  
+
   // 总的列头宽度
   const headerTotalWidth = columnNameWidth + columnTypeWidth + gapWidth + agGridUISpace;
 
@@ -162,7 +162,7 @@ const calculateColumnWidth = (
   return Math.max(config.minWidth, Math.min(finalWidth, config.maxWidth));
 };
 
-// 轻量级 Cell Renderer
+// 轻量级 Cell Renderer（支持选中状态）
 const LightweightCellRenderer = React.memo((params: any) => {
   if (params.value == null) {
     return <span className="ag-cell-null">NULL</span>;
@@ -178,7 +178,7 @@ const OptimizedDateCellRenderer = React.memo((params: any) => {
   if (params.value == null) {
     return <span className="ag-cell-null">NULL</span>;
   }
-  
+
   // 缓存日期格式化结果
   const formatted = useMemo(() => {
     try {
@@ -196,7 +196,7 @@ const OptimizedDateCellRenderer = React.memo((params: any) => {
     } catch (e) { /* ignore */ }
     return params.value;
   }, [params.value]);
-  
+
   return <span className="ag-cell-date">{formatted}</span>;
 }, (prevProps, nextProps) => {
   return prevProps.value === nextProps.value;
@@ -207,6 +207,27 @@ const formatRowCount = (count: number): string => {
   if (count >= 1000000) return `${(count / 1000000).toFixed(1)}M`;
   if (count >= 1000) return `${(count / 1000).toFixed(1)}K`;
   return count ? count.toString() : '0';
+};
+
+// 生成简洁的 Tab 标题提示（优化显示宽度）
+const generateTabTitle = (tab: any): string => {
+  // 根据内容动态调整标题长度
+  const maxTitleLength = 22;
+  let baseTitle = tab.title;
+  
+  // 如果标题过长，进行智能截断
+  if (baseTitle.length > maxTitleLength) {
+    // 优先保留前面的关键信息
+    baseTitle = `${baseTitle.substring(0, maxTitleLength - 3)}...`;
+  }
+  
+  if (tab.affectedRows !== undefined) {
+    const formattedCount = formatRowCount(tab.affectedRows);
+    return `${baseTitle} | ${formattedCount} 行受影响`;
+  } else {
+    const formattedCount = formatRowCount(tab.rowCount);
+    return `${baseTitle} | ${formattedCount} 行数据`;
+  }
 };
 
 const CustomInnerHeader = React.memo((props: any) => {
@@ -231,6 +252,7 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, isLoading = false, on
   const [columnSearchOpen, setColumnSearchOpen] = useState(false);
   const [selectedColumn, setSelectedColumn] = useState<string>('');
   const [optimizedTabs, setOptimizedTabs] = useState<Set<string>>(new Set());
+  const [selectedCell, setSelectedCell] = useState<{ rowIndex: number, colId: string, colIndex: number, value: any } | null>(null);
   const { resolvedTheme } = useTheme();
   const quickFilterTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -252,14 +274,14 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, isLoading = false, on
       if (widthCache.has(cacheKey)) {
         return widthCache.get(cacheKey)!;
       }
-  
+
       return new Promise((resolve) => {
         const calculate = () => {
           const width = calculateColumnWidth(columnName, columnData, columnType, config);
           widthCache.set(cacheKey, width);
           resolve(width);
         };
-    
+
         if ('requestIdleCallback' in window) {
           (window as any).requestIdleCallback(calculate);
         } else {
@@ -292,6 +314,8 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, isLoading = false, on
         cellRenderer: isDateColumn ? OptimizedDateCellRenderer : LightweightCellRenderer,
         suppressKeyboardEvent: () => false,
         suppressMovable: false,
+        // 用 context 存储自定义索引
+        context: { columnIndex: index },
       };
     });
   }, []);
@@ -299,7 +323,7 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, isLoading = false, on
   // 延迟加载的 tabsData
   const tabsData = useMemo(() => {
     const endMeasure = performanceMonitor.measureRenderTime('tabs-data-generation');
-    
+
     if (!result?.result_sets) {
       endMeasure();
       return [];
@@ -323,47 +347,36 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, isLoading = false, on
   const optimizeColumnDefinitions = useCallback(async (tabId: string) => {
     const tabData = tabsData.find(tab => tab.id === tabId);
     if (!tabData?.needsOptimization || optimizedTabs.has(tabId)) return;
-
     const endMeasure = performanceMonitor.measureRenderTime(`column-optimization-${tabId}`);
-    
     const gridApi = gridApis[tabId];
-    if (!gridApi) return;
-
+    if (!gridApi || gridApi.isDestroyed?.()) return;
     const columns = tabData.resultSet.columns || [];
-    const batchSize = 10; // 分批处理
-
-    // 分批优化列宽
+    const batchSize = 10;
     for (let i = 0; i < columns.length; i += batchSize) {
       const batch = columns.slice(i, i + batchSize);
-      
-      // 使用 requestAnimationFrame 避免阻塞主线程
       await new Promise(resolve => requestAnimationFrame(resolve));
-      
-             // 异步计算这批列的最优宽度
-       const optimizedColumns = await Promise.all(
-         batch.map(async (columnName, batchIndex) => {
-           const globalIndex = i + batchIndex;
-           const columnData = tabData.resultSet.rows?.map(row => row[columnName]) || [];
-           const columnType = tabData.resultSet.column_types?.[i + batchIndex] || '';
-           const width = await calculateColumnWidthAsync(columnName, columnData, columnType);
-           return { columnName, width, index: globalIndex };
-         })
-       );
-
-             // 批量更新列宽 - 使用 AG-Grid 的列定义更新方式
-       try {
-         const columnState = gridApi.getColumnState();
-         const updatedColumns = columnState.map(col => {
-           const optimized = optimizedColumns.find(opt => opt.columnName === col.colId);
-           return optimized ? { ...col, width: optimized.width } : col;
-         });
-         gridApi.applyColumnState({ state: updatedColumns });
-       } catch (error) {
-         // 忽略可能的错误，降级到自动调整
-         gridApi.autoSizeAllColumns();
-       }
+      const optimizedColumns = await Promise.all(
+        batch.map(async (columnName, batchIndex) => {
+          const globalIndex = i + batchIndex;
+          const columnData = tabData.resultSet.rows?.map(row => row[columnName]) || [];
+          const columnType = tabData.resultSet.column_types?.[i + batchIndex] || '';
+          const width = await calculateColumnWidthAsync(columnName, columnData, columnType);
+          return { columnName, width, index: globalIndex };
+        })
+      );
+      try {
+        if (gridApi.isDestroyed?.()) return;
+        const columnState = gridApi.getColumnState();
+        const updatedColumns = columnState.map(col => {
+          const optimized = optimizedColumns.find(opt => opt.columnName === col.colId);
+          return optimized ? { ...col, width: optimized.width } : col;
+        });
+        gridApi.applyColumnState({ state: updatedColumns });
+      } catch (error) {
+        if (gridApi.isDestroyed?.()) return;
+        gridApi.autoSizeAllColumns();
+      }
     }
-
     setOptimizedTabs(prev => new Set([...prev, tabId]));
     endMeasure();
   }, [tabsData, gridApis, optimizedTabs, calculateColumnWidthAsync]);
@@ -377,6 +390,15 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, isLoading = false, on
   useEffect(() => {
     setSelectedColumn('');
     setColumnSearchOpen(false);
+    
+    // 🔥 简单解决方案：每次切换tab时，清除该tab的优化状态，强制重新计算
+    if (activeTab) {
+      setOptimizedTabs(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(activeTab);
+        return newSet;
+      });
+    }
   }, [activeTab]);
 
   // 在网格就绪后异步优化
@@ -386,7 +408,7 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, isLoading = false, on
       const timer = setTimeout(() => {
         optimizeColumnDefinitions(activeTab);
       }, 100);
-      
+
       return () => clearTimeout(timer);
     }
   }, [activeTab, gridApis, optimizeColumnDefinitions]);
@@ -420,20 +442,19 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, isLoading = false, on
 
   const autoSizeColumns = useCallback((tabId: string) => {
     const gridApi = gridApis[tabId];
-    if (gridApi) {
+    if (gridApi && !gridApi.isDestroyed?.()) {
       setTimeout(() => gridApi.autoSizeAllColumns(), 0);
     }
   }, [gridApis]);
 
   const scrollToColumn = useCallback((columnName: string) => {
     const gridApi = gridApis[activeTab];
-    if (gridApi && columnName) {
+    if (gridApi && !gridApi.isDestroyed?.() && columnName) {
       try {
         gridApi.ensureColumnVisible(columnName);
         gridApi.setFocusedCell(0, columnName);
         setSelectedColumn(columnName);
         setColumnSearchOpen(false);
-        
         toast.success("列跳转成功", {
           description: `已定位到列 "${columnName}"`,
         });
@@ -445,10 +466,159 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, isLoading = false, on
     }
   }, [gridApis, activeTab, toast]);
 
+  // 创建选中覆盖层
+  const createSelectionOverlay = useCallback((rowIndex: number, colId: string) => {
+    const existingOverlay = document.querySelector('.ag-cell-selection-overlay');
+    if (existingOverlay) {
+      existingOverlay.remove();
+    }
+    const gridApi = gridApis[activeTab];
+    if (!gridApi || gridApi.isDestroyed?.()) return;
+    const cellElement = document.querySelector(`[row-index="${rowIndex}"][col-id="${colId}"]`);
+    if (!cellElement) return;
+
+    // 创建覆盖层
+    const overlay = document.createElement('div');
+    overlay.className = 'ag-cell-selection-overlay';
+
+    // 获取单元格的位置和大小
+    const cellRect = cellElement.getBoundingClientRect();
+    const gridContainer = document.querySelector('.ag-theme-quartz') as HTMLElement;
+    const gridRect = gridContainer?.getBoundingClientRect();
+
+    if (!gridRect || !gridContainer) return;
+
+    // 设置覆盖层样式和位置
+    overlay.style.cssText = `
+      position: absolute;
+      top: ${cellRect.top - gridRect.top}px;
+      left: ${cellRect.left - gridRect.left}px;
+      width: ${cellRect.width}px;
+      height: ${cellRect.height}px;
+      background-color: rgba(59, 130, 246, 0.2);
+      border: 2px solid #3b82f6;
+      box-sizing: border-box;
+      pointer-events: none;
+      z-index: 10;
+    `;
+
+    // 将覆盖层添加到网格容器中
+    gridContainer.style.position = 'relative';
+    gridContainer.appendChild(overlay);
+  }, [gridApis, activeTab]);
+
+  // 单元格点击处理函数
+  const onCellClicked = useCallback((event: any) => {
+    const { rowIndex, colDef, value } = event;
+    // 通过 context 获取列索引
+    const colIndex = colDef.context?.columnIndex ?? -1;
+    setSelectedCell({
+      rowIndex,
+      colId: colDef.field,
+      colIndex,
+      value
+    });
+    createSelectionOverlay(rowIndex, colDef.field);
+  }, [createSelectionOverlay]);
+
+  // 复制单元格内容到剪贴板
+  const copySelectedCell = useCallback(async () => {
+    if (!selectedCell) {
+      toast.error("复制失败", { description: "请先选择一个单元格" });
+      return;
+    }
+
+    try {
+      const textToCopy = selectedCell.value === null || selectedCell.value === undefined
+        ? 'NULL'
+        : String(selectedCell.value);
+
+      await navigator.clipboard.writeText(textToCopy);
+      toast.success("复制成功", {
+        description: `已复制单元格内容: ${textToCopy.length > 50 ? textToCopy.substring(0, 50) + '...' : textToCopy}`
+      });
+    } catch (error) {
+      toast.error("复制失败", { description: "无法访问剪贴板" });
+    }
+  }, [selectedCell, toast]);
+
+  // 键盘事件监听
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      // 检查是否按下了 Ctrl+C (Windows/Linux) 或 Cmd+C (Mac)
+      if ((event.ctrlKey || event.metaKey) && event.key === 'c') {
+        // 检查焦点是否在表格区域内
+        const activeElement = document.activeElement;
+        const agGridContainer = activeElement?.closest('.ag-theme-quartz');
+
+        if (agGridContainer && selectedCell) {
+          event.preventDefault();
+          copySelectedCell();
+        }
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [copySelectedCell, selectedCell]);
+
+  // 清除选中覆盖层
+  const clearSelectionOverlay = useCallback(() => {
+    const existingOverlay = document.querySelector('.ag-cell-selection-overlay');
+    if (existingOverlay) {
+      existingOverlay.remove();
+    }
+  }, []);
+
+  // 当切换标签时清空选中的单元格和覆盖层
+  useEffect(() => {
+    setSelectedCell(null);
+    clearSelectionOverlay();
+  }, [activeTab, clearSelectionOverlay]);
+
+  // 监听滚动事件，滚动时更新覆盖层位置或清除
+  useEffect(() => {
+    const handleScroll = () => {
+      if (selectedCell) {
+        // 重新创建覆盖层以更新位置
+        setTimeout(() => {
+          createSelectionOverlay(selectedCell.rowIndex, selectedCell.colId);
+        }, 0);
+      }
+    };
+
+    const gridContainer = document.querySelector('.ag-theme-quartz');
+    if (gridContainer) {
+      gridContainer.addEventListener('scroll', handleScroll);
+      return () => {
+        gridContainer.removeEventListener('scroll', handleScroll);
+      };
+    }
+  }, [selectedCell, createSelectionOverlay]);
+
+  // 监听窗口大小变化
+  useEffect(() => {
+    const handleResize = () => {
+      // 更新选中单元格覆盖层位置
+      if (selectedCell) {
+        setTimeout(() => {
+          createSelectionOverlay(selectedCell.rowIndex, selectedCell.colId);
+        }, 100);
+      }
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => {
+      window.removeEventListener('resize', handleResize);
+    };
+  }, [selectedCell, createSelectionOverlay]);
+
   const activeTabColumns = useMemo(() => {
     const activeTabData = tabsData.find(tab => tab.id === activeTab);
     if (!activeTabData?.resultSet.columns) return [];
-    
+
     return activeTabData.resultSet.columns.map((columnName, index) => ({
       name: columnName,
       type: activeTabData.resultSet.column_types?.[index] || '未知类型'
@@ -467,33 +637,22 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, isLoading = false, on
 
   // 优化：AG-Grid 配置
   const gridOptions = useMemo(() => ({
-    // 性能优化关键配置
     animateRows: false,
-    enableRangeSelection: false,
-    enableCellTextSelection: true,
     suppressScrollOnNewData: true,
-    suppressColumnVirtualisation: false, // 启用列虚拟化
-    suppressRowVirtualisation: false,    // 启用行虚拟化
-    rowBuffer: 10,                       // 行缓冲区大小
-    viewportRowModelPageSize: 100,       // 视口行模型页面大小
-    viewportRowModelBufferSize: 100,     // 视口行模型缓冲区大小
-    
-    // 分页配置
+    suppressColumnVirtualisation: false,
+    suppressRowVirtualisation: false,
+    rowBuffer: 10,
+    viewportRowModelPageSize: 100,
+    viewportRowModelBufferSize: 100,
     pagination: true,
     paginationPageSize: 100,
-    paginationPageSizeSelector: [50, 100, 200, 500],
-    
-    // 尺寸配置
+    paginationPageSizeSelector: [20, 50, 100, 200],
     rowHeight: 35,
     headerHeight: 40,
-    
-    // 其他配置
     ensureDomOrder: true,
     suppressMovableColumns: false,
-    suppressDragDropToRowGroups: true,
-    suppressRowClickSelection: true,
-    suppressCellFocus: false,
-  }), []);
+    onCellClicked: onCellClicked,
+  }), [onCellClicked]);
 
   if (isLoading) {
     return (
@@ -514,221 +673,224 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, isLoading = false, on
   }
 
   return (
-    <>
-      <div className="h-full flex flex-col overflow-hidden w-full max-w-full">
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="h-full flex flex-col overflow-hidden w-full max-w-full">
-          <div className="flex-shrink-0 border-b">
-            <div className="overflow-x-auto overflow-y-hidden px-3 max-w-full">
-              <TabsList className="flex space-x-1 w-max min-w-0">
-                {tabsData.map((tab) => (
-                  <TabsTrigger
-                    key={tab.id}
-                    value={tab.id}
-                    className="flex items-center gap-2 px-3 py-2 rounded-lg transition-all duration-200 ease-in-out data-[state=active]:bg-primary data-[state=active]:text-primary-foreground hover:bg-muted whitespace-nowrap flex-shrink-0 min-w-0"
-                    title={`${tab.title} - ${tab.affectedRows !== undefined ? `${tab.affectedRows} 行受影响` : `${tab.rowCount} 行数据`}`}
-                  >
-                    <TableIcon className="h-4 w-4 flex-shrink-0" />
-                    <span className="text-sm truncate min-w-0">{tab.title}</span>
-                    {tab.affectedRows !== undefined ? (
-                      <Badge variant="secondary" className="ml-1 flex-shrink-0 text-xs px-1.5 py-0.5">
-                        {formatRowCount(tab.affectedRows)}
-                      </Badge>
-                    ) : (
-                      <Badge variant="outline" className="ml-1 flex-shrink-0 text-xs px-1.5 py-0.5">
-                        {formatRowCount(tab.rowCount)}
-                      </Badge>
-                    )}
-                  </TabsTrigger>
-                ))}
-              </TabsList>
-            </div>
+    <div className="h-full flex flex-col overflow-hidden w-full max-w-full">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="h-full flex flex-col overflow-hidden w-full max-w-full">
+        <div className="flex-shrink-0 border-b">
+          <div className="overflow-x-auto overflow-y-hidden px-3 max-w-full">
+            <TabsList className="flex space-x-1 w-max min-w-0">
+              {tabsData.map((tab) => (
+                <TabsTrigger
+                  key={tab.id}
+                  value={tab.id}
+                  className="flex items-center gap-2 px-3 py-2 rounded-lg transition-all duration-200 ease-in-out data-[state=active]:bg-primary data-[state=active]:text-primary-foreground hover:bg-muted whitespace-nowrap flex-shrink-0 min-w-[140px] max-w-[200px]"
+                  title={generateTabTitle(tab)}
+                >
+                  <TableIcon className="h-4 w-4 flex-shrink-0" />
+                  <span className="text-sm truncate min-w-0 max-w-[100px]">{tab.title}</span>
+                  {tab.affectedRows !== undefined ? (
+                    <Badge variant="secondary" className="ml-1 flex-shrink-0 text-xs px-1.5 py-0.5">
+                      {formatRowCount(tab.affectedRows)}
+                    </Badge>
+                  ) : (
+                    <Badge variant="outline" className="ml-1 flex-shrink-0 text-xs px-1.5 py-0.5">
+                      {formatRowCount(tab.rowCount)}
+                    </Badge>
+                  )}
+                </TabsTrigger>
+              ))}
+            </TabsList>
           </div>
+        </div>
 
-          {tabsData.map((tab) => (
-            <TabsContent key={tab.id} value={tab.id} className="flex-1 overflow-hidden p-0 data-[state=inactive]:hidden">
-              <div className="h-full flex flex-col">
-                <div className="flex-shrink-0 p-3 border-b bg-muted/30">
-                  <div className="flex items-center justify-between flex-wrap gap-2">
-                    <div className="flex items-center gap-4 flex-wrap">
-                      <div className="flex items-center gap-2">
-                        <InfoIcon className="h-4 w-4 text-muted-foreground" />
-                        <span className="text-sm text-muted-foreground">
-                          返回 <strong>{tab.rowCount.toLocaleString()}</strong> 行数据
-                        </span>
-                        {optimizedTabs.has(tab.id) && (
+        {tabsData.map((tab) => (
+          <TabsContent key={tab.id} value={tab.id} className="flex-1 overflow-hidden p-0 data-[state=inactive]:hidden">
+            <div className="h-full flex flex-col">
+              <div className="flex-shrink-0 p-3 border-b bg-muted/30">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <div className="flex items-center gap-4 flex-wrap">
+                    <div className="flex items-center gap-2">
+                      <InfoIcon className="h-4 w-4 text-muted-foreground" />
+                      <span className="text-sm text-muted-foreground">
+                        返回 <strong>{tab.rowCount.toLocaleString()}</strong> 行数据
+                      </span>
+                      {/* {optimizedTabs.has(tab.id) && (
                           <Badge variant="outline" className="text-xs">
                             已优化
                           </Badge>
-                        )}
-                      </div>
-                      {result.execution_time !== undefined && (
-                        <div className="flex items-center gap-2">
-                          <ClockIcon className="h-4 w-4 text-muted-foreground" />
-                          <span className="text-sm text-muted-foreground">
-                            执行时间: <strong>{result.execution_time.toFixed(2)}</strong> 秒
-                          </span>
-                        </div>
+                        )} */}
+                      {selectedCell && (
+                        <Badge variant="secondary" className="text-xs">
+                          已选中单元格(第{selectedCell.rowIndex + 1}行,第{selectedCell.colIndex >= 0 ? selectedCell.colIndex + 1 : '?'}列)
+                        </Badge>
                       )}
-                      <div className="flex items-center gap-2 ml-4">
-                        <div className="relative">
-                          <SearchIcon className="h-4 w-4 absolute left-2 top-1/2 transform -translate-y-1/2 text-muted-foreground" />
-                          <Input
-                            type="text"
-                            placeholder="搜索所有数据..."
-                            className="pl-8 h-8 text-sm"
-                            onChange={(e) => handleQuickFilterChange(e.target.value)}
-                            aria-label="搜索所有数据"
-                          />
-                        </div>
-                        <Popover open={columnSearchOpen} onOpenChange={setColumnSearchOpen}>
-                          <PopoverTrigger asChild>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="h-8 min-w-[140px] justify-between text-sm"
-                              disabled={activeTabColumns.length === 0}
-                              aria-label="跳转到指定列"
-                              title={selectedColumn ? `当前选中: ${selectedColumn}，点击重新选择列` : "点击选择要跳转的列"}
-                            >
-                              <div className="flex items-center gap-1">
-                                <ColumnsIcon className="h-4 w-4" />
-                                <span className="truncate">
-                                  {selectedColumn || "跳转到列"}
-                                </span>
-                              </div>
-                              <ChevronDownIcon className="h-4 w-4 opacity-50" />
-                            </Button>
-                          </PopoverTrigger>
-                          <PopoverContent className="w-80 p-0" align="start">
-                            <Command
-                              onKeyDown={(e) => {
-                                if (e.key === 'Escape') {
-                                  setColumnSearchOpen(false);
-                                }
-                              }}
-                            >
-                              <CommandInput 
-                                placeholder="输入列名快速定位..." 
-                                className="h-9"
-                              />
-                              <CommandList className="max-h-[200px]">
-                                <CommandEmpty>未找到匹配的列名</CommandEmpty>
-                                <CommandGroup heading="选择列名快速跳转到表格位置">
-                                  {activeTabColumns.map((column) => (
-                                    <CommandItem
-                                      key={column.name}
-                                      value={column.name}
-                                      onSelect={() => scrollToColumn(column.name)}
-                                      className="flex items-center gap-2 cursor-pointer"
-                                    >
-                                      <ColumnsIcon className="h-4 w-4" />
-                                      <div className="flex-1 min-w-0">
-                                        <div className="font-medium truncate">{column.name}</div>
-                                        <div className="text-xs text-muted-foreground">{column.type}</div>
-                                      </div>
-                                    </CommandItem>
-                                  ))}
-                                </CommandGroup>
-                              </CommandList>
-                            </Command>
-                          </PopoverContent>
-                        </Popover>
-                      </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="outline" size="sm" disabled={!gridApis[tab.id]}>
-                            <SettingsIcon className="h-4 w-4 mr-1" />
-                            操作
+                    {result.execution_time !== undefined && (
+                      <div className="flex items-center gap-2">
+                        <ClockIcon className="h-4 w-4 text-muted-foreground" />
+                        <span className="text-sm text-muted-foreground">
+                          执行时间: <strong>{result.execution_time.toFixed(2)}</strong> 秒
+                        </span>
+                      </div>
+                    )}
+                    <div className="flex items-center gap-2 ml-4">
+                      <div className="relative">
+                        <SearchIcon className="h-4 w-4 absolute left-2 top-1/2 transform -translate-y-1/2 text-muted-foreground" />
+                        <Input
+                          type="text"
+                          placeholder="搜索所有数据..."
+                          className="pl-8 h-8 text-sm"
+                          onChange={(e) => handleQuickFilterChange(e.target.value)}
+                          aria-label="搜索所有数据"
+                        />
+                      </div>
+                      <Popover open={columnSearchOpen} onOpenChange={setColumnSearchOpen}>
+                        <PopoverTrigger asChild>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-8 min-w-[140px] justify-between text-sm"
+                            disabled={activeTabColumns.length === 0}
+                            aria-label="跳转到指定列"
+                            title={selectedColumn ? `当前选中: ${selectedColumn}，点击重新选择列` : "点击选择要跳转的列"}
+                          >
+                            <div className="flex items-center gap-1">
+                              <ColumnsIcon className="h-4 w-4" />
+                              <span className="truncate">
+                                {selectedColumn || "跳转到列"}
+                              </span>
+                            </div>
+                            <ChevronDownIcon className="h-4 w-4 opacity-50" />
                           </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="w-52">
-                          <DropdownMenuItem
-                            onClick={() => autoSizeColumns(tab.id)}
-                            disabled={!gridApis[tab.id]}
+                        </PopoverTrigger>
+                        <PopoverContent className="w-80 p-0" align="start">
+                          <Command
+                            onKeyDown={(e) => {
+                              if (e.key === 'Escape') {
+                                setColumnSearchOpen(false);
+                              }
+                            }}
                           >
-                            <ZapIcon className="h-4 w-4 mr-2" />
-                            自适应列宽
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={() => exportToCsv(tab.id)}
-                            disabled={!gridApis[tab.id]}
-                          >
-                            <DownloadIcon className="h-4 w-4 mr-2" />
-                            导出CSV
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                      {onClose && (
-                        <Button variant="outline" size="sm" onClick={onClose}>
-                          <XIcon className="h-4 w-4 mr-1" />
-                          关闭
-                        </Button>
-                      )}
+                            <CommandInput
+                              placeholder="输入列名快速定位..."
+                              className="h-9"
+                            />
+                            <CommandList className="max-h-[200px]">
+                              <CommandEmpty>未找到匹配的列名</CommandEmpty>
+                              <CommandGroup heading="选择列名快速跳转到表格位置">
+                                {activeTabColumns.map((column) => (
+                                  <CommandItem
+                                    key={column.name}
+                                    value={column.name}
+                                    onSelect={() => scrollToColumn(column.name)}
+                                    className="flex items-center gap-2 cursor-pointer"
+                                  >
+                                    <ColumnsIcon className="h-4 w-4" />
+                                    <div className="flex-1 min-w-0">
+                                      <div className="font-medium truncate">{column.name}</div>
+                                      <div className="text-xs text-muted-foreground">{column.type}</div>
+                                    </div>
+                                  </CommandItem>
+                                ))}
+                              </CommandGroup>
+                            </CommandList>
+                          </Command>
+                        </PopoverContent>
+                      </Popover>
                     </div>
                   </div>
-                </div>
-
-                <div className="flex-1 overflow-hidden">
-                  {tab.resultSet.error ? (
-                    <div className="h-full flex items-center justify-center text-destructive p-4">
-                      <XIcon className="h-8 w-8 mr-3" />
-                      <div className="flex flex-col">
-                        <span>查询出错:</span>
-                        <span className="text-sm">{tab.resultSet.error}</span>
-                      </div>
-                    </div>
-                  ) : tab.resultSet.columns && tab.resultSet.columns.length > 0 ? (
-                    <div 
-                      className="ag-theme-quartz h-full w-full"
-                      style={{
-                        contain: 'layout style paint',
-                        willChange: 'transform'
-                      }}
-                    >
-                      <AgGridReact
-                        theme={theme}
-                        localeText={AG_GRID_LOCALE_CN}
-                        rowData={tab.resultSet.rows || []}
-                        columnDefs={tab.columnDefs}
-                        defaultColDef={defaultColDef}
-                        onGridReady={(params) => onGridReady(params, tab.id)}
-                        quickFilterText={quickFilterText}
-                        {...gridOptions}
-                      />
-                    </div>
-                  ) : tab.affectedRows !== undefined && tab.affectedRows > 0 ? (
-                    <div className="h-full flex items-center justify-center">
-                      <Card className="w-96">
-                        <CardHeader>
-                          <CardTitle className="flex items-center gap-2">
-                            <CheckCircleIcon className="h-5 w-5 text-green-500" />
-                            操作完成
-                          </CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                          <p className="text-sm text-muted-foreground">
-                            影响了 {tab.affectedRows} 行数据
-                          </p>
-                        </CardContent>
-                      </Card>
-                    </div>
-                  ) : (
-                    <div className="h-full flex items-center justify-center text-muted-foreground">
-                      <div className="text-center">
-                        <DatabaseIcon className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                        <p>查询完成</p>
-                      </div>
-                    </div>
-                  )}
+                  <div className="flex items-center gap-2">
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="outline" size="sm" disabled={!gridApis[tab.id]}>
+                          <SettingsIcon className="h-4 w-4 mr-1" />
+                          操作
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="w-52">
+                        <DropdownMenuItem
+                          onClick={() => autoSizeColumns(tab.id)}
+                          disabled={!gridApis[tab.id]}
+                        >
+                          <ZapIcon className="h-4 w-4 mr-2" />
+                          自适应列宽
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onClick={() => exportToCsv(tab.id)}
+                          disabled={!gridApis[tab.id]}
+                        >
+                          <DownloadIcon className="h-4 w-4 mr-2" />
+                          导出CSV
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                    {onClose && (
+                      <Button variant="outline" size="sm" onClick={onClose}>
+                        <XIcon className="h-4 w-4 mr-1" />
+                        关闭
+                      </Button>
+                    )}
+                  </div>
                 </div>
               </div>
-            </TabsContent>
-          ))}
-        </Tabs>
-      </div>
-    </>
+
+              <div className="flex-1 overflow-hidden">
+                {tab.resultSet.error ? (
+                  <div className="h-full flex items-center justify-center text-destructive p-4">
+                    <XIcon className="h-8 w-8 mr-3" />
+                    <div className="flex flex-col">
+                      <span>查询出错:</span>
+                      <span className="text-sm">{tab.resultSet.error}</span>
+                    </div>
+                  </div>
+                ) : tab.resultSet.columns && tab.resultSet.columns.length > 0 ? (
+                  <div
+                    className="ag-theme-quartz h-full w-full"
+                    style={{
+                      contain: 'layout style paint',
+                      willChange: 'transform'
+                    }}
+                  >
+                    <AgGridReact
+                      theme={theme}
+                      localeText={AG_GRID_LOCALE_CN}
+                      rowData={tab.resultSet.rows || []}
+                      columnDefs={tab.columnDefs}
+                      defaultColDef={defaultColDef}
+                      onGridReady={(params) => onGridReady(params, tab.id)}
+                      quickFilterText={quickFilterText}
+                      {...gridOptions}
+                    />
+                  </div>
+                ) : tab.affectedRows !== undefined && tab.affectedRows > 0 ? (
+                  <div className="h-full flex items-center justify-center">
+                    <Card className="w-96">
+                      <CardHeader>
+                        <CardTitle className="flex items-center gap-2">
+                          <CheckCircleIcon className="h-5 w-5 text-green-500" />
+                          操作完成
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <p className="text-sm text-muted-foreground">
+                          影响了 {tab.affectedRows} 行数据
+                        </p>
+                      </CardContent>
+                    </Card>
+                  </div>
+                ) : (
+                  <div className="h-full flex items-center justify-center text-muted-foreground">
+                    <div className="text-center">
+                      <DatabaseIcon className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                      <p>查询完成</p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </TabsContent>
+        ))}
+      </Tabs>
+    </div>
   )
 };
 
