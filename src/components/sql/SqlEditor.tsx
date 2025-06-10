@@ -567,6 +567,9 @@ const SqlEditor = forwardRef<SqlEditorRef, SqlEditorProps>(({
           theme={resolvedTheme === 'dark' ? 'vs-dark' : 'vs'}
           options={{
             minimap: { enabled: false },
+            guides: {
+              indentation: false
+            },
             scrollBeyondLastLine: false,
             wrappingIndent: 'indent',
             automaticLayout: true,
