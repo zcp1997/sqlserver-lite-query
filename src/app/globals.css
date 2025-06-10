@@ -42,9 +42,17 @@
   font-display: swap;
 }
 
+@font-face {
+  font-family: 'NotoSansSC';
+  src: url('../../public/fonts/NotoSansSC-Regular.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
 :root {
   --radius: 0.625rem;
-  --font-inter: 'Inter', 'Noto Sans Mono CJK SC', 'JetBrainsMono', 'Source Code Pro', 'Microsoft YaHei Mono', 'PingFang SC', 'Consolas', 'Monaco', 'Courier New', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-inter: 'Inter', 'NotoSansSC', 'JetBrainsMono', 'Source Code Pro', 'Microsoft YaHei Mono', 'PingFang SC', 'Consolas', 'Monaco', 'Courier New', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --font-jetbrains: 'Source Code Pro', 'Microsoft YaHei Mono', 'PingFang SC', 'Noto Sans Mono CJK SC', 'Consolas', 'Monaco', 'Courier New', monospace;
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
@@ -167,7 +175,7 @@
   /* 同时为亮色和暗色模式应用规则 */
 
   /* 1. 直接指定字体族为 'Inter' */
-  --ag-font-family: 'Inter', sans-serif;
+  --ag-font-family: 'var(--font-inter)';
 
   /* 2. (核心) 设置单元格的默认字重为 500 */
   --ag-font-weight: 500;

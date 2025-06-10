@@ -576,7 +576,7 @@ const SqlEditor = forwardRef<SqlEditorRef, SqlEditorProps>(({
             tabSize: 2,
             readOnly,
             fontSize: fontSize,
-            fontFamily: 'var(--font-inter), var(--font-jetbrains)',
+            fontFamily: 'var(--font-inter)',
             fontLigatures: true,
             // 增加这些配置改善中文显示
             wordWrap: 'on',
