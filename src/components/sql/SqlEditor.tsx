@@ -257,15 +257,25 @@ const SqlEditor = forwardRef<SqlEditorRef, SqlEditorProps>(({
     const monacoTheme = resolvedTheme === 'dark' ? 'vs-dark' : 'vs'
     monacoInstance.editor.setTheme(monacoTheme)
 
-    // 监听选择变化事件
+    // 监听选择变化事件 - 使用防抖优化性能
+    let selectionChangeTimer: NodeJS.Timeout | null = null
     editor.onDidChangeCursorSelection((e) => {
-      const selection = editor.getSelection()
-      if (selection && !selection.isEmpty()) {
-        const selectedText = editor.getModel()?.getValueInRange(selection) || ''
-        onSelectionChange?.(selectedText)
-      } else {
-        onSelectionChange?.('')
+      // 清除之前的定时器
+      if (selectionChangeTimer) {
+        clearTimeout(selectionChangeTimer)
       }
+      
+      // 设置新的防抖定时器
+      selectionChangeTimer = setTimeout(() => {
+        const selection = editor.getSelection()
+        if (selection && !selection.isEmpty()) {
+          const selectedText = editor.getModel()?.getValueInRange(selection) || ''
+          onSelectionChange?.(selectedText)
+        } else {
+          onSelectionChange?.('')
+        }
+        selectionChangeTimer = null
+      }, 150) // 150ms 防抖延迟，平衡响应性和性能
     })
 
     // 注册右键菜单

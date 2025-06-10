@@ -43,8 +43,18 @@ import {
   ZapIcon,
   ChevronDownIcon,
   ColumnsIcon,
+  CheckIcon,
+  XCircleIcon,
+  CodeIcon,
 } from 'lucide-react'
 import { useTheme } from "next-themes"
+import {
+  createAsyncColumnWidthCalculator,
+  DEFAULT_COLUMN_CONFIG,
+} from '@/lib/columnUtils'
+import { performanceMonitor } from '@/lib/performanceUtils'
+import { generateSqlServerInsert, copyToClipboard } from '@/lib/sqlUtils'
+import { formatRowCount, generateTabTitle, formatTimestamp } from '@/lib/formatUtils'
 
 ModuleRegistry.registerModules([AllCommunityModule]);
 
@@ -53,114 +63,6 @@ interface ResultPanelProps {
   isLoading?: boolean
   onClose?: () => void
 }
-
-// 列宽计算配置
-interface ColumnWidthConfig {
-  minWidth: number;
-  maxWidth: number;
-  baseCharWidth: number;
-  chineseCharWidth: number;
-  padding: number;
-  sampleSize: number;
-}
-
-const DEFAULT_CONFIG: ColumnWidthConfig = {
-  minWidth: 80,
-  maxWidth: 500,
-  baseCharWidth: 9,
-  chineseCharWidth: 18,
-  padding: 32,
-  sampleSize: 100
-};
-
-// 性能监控工具
-const performanceMonitor = {
-  measureRenderTime: (label: string) => {
-    const startMark = `${label}-start`;
-    const endMark = `${label}-end`;
-    performance.mark(startMark);
-
-    return () => {
-      performance.mark(endMark);
-      performance.measure(label, startMark, endMark);
-
-      const measure = performance.getEntriesByName(label)[0];
-      if (measure) {
-        console.log(`${label}: ${measure.duration.toFixed(2)}ms`);
-        if (measure.duration > 1000) {
-          console.warn(`${label} is slow (${measure.duration.toFixed(2)}ms), consider optimization`);
-        }
-      }
-    };
-  }
-};
-
-const calculateTextWidth = (text: string, config: ColumnWidthConfig): number => {
-  if (!text || typeof text !== 'string') return 0;
-  let width = 0;
-  for (let i = 0; i < text.length; i++) {
-    const char = text[i];
-    if (/[\u4e00-\u9fff\u3400-\u4dbf\uff00-\uffef\u3000-\u303f]/.test(char)) {
-      width += config.chineseCharWidth;
-    } else if (/[A-Z]/.test(char)) {
-      width += config.baseCharWidth * 1.1;
-    } else if (/\d/.test(char)) {
-      width += config.baseCharWidth * 0.9;
-    } else {
-      width += config.baseCharWidth;
-    }
-  }
-  return Math.ceil(width);
-};
-
-const calculateColumnWidth = (
-  columnName: string,
-  columnData: any[],
-  columnType: string = '',
-  config: ColumnWidthConfig = DEFAULT_CONFIG
-): number => {
-  // 计算列名宽度
-  const columnNameWidth = calculateTextWidth(columnName, config);
-
-  // 计算类型标签宽度（包括背景、padding、rounded等样式空间）
-  const columnTypeWidth = columnType ? calculateTextWidth(columnType, config) + 24 : 0; // 24px for padding + background
-
-  // 计算标签间的间距（gap-2 = 8px）
-  const gapWidth = columnType ? 8 : 0;
-
-  // AG-Grid UI 元素空间（排序图标、过滤器图标等）
-  const agGridUISpace = 50;
-
-  // 总的列头宽度
-  const headerTotalWidth = columnNameWidth + columnTypeWidth + gapWidth + agGridUISpace;
-
-  if (!columnData || columnData.length === 0) {
-    return Math.max(config.minWidth, Math.min(headerTotalWidth, config.maxWidth));
-  }
-
-  const sampleData = columnData.length > config.sampleSize
-    ? [
-      ...columnData.slice(0, Math.floor(config.sampleSize * 0.7)),
-      ...columnData.slice(-Math.floor(config.sampleSize * 0.3))
-    ]
-    : columnData;
-
-  let maxContentWidth = 0;
-  for (const value of sampleData) {
-    if (value === null || value === undefined) {
-      const nullWidth = calculateTextWidth('NULL', config);
-      maxContentWidth = Math.max(maxContentWidth, nullWidth);
-      continue;
-    }
-    const textValue = String(value);
-    const contentWidth = calculateTextWidth(textValue, config);
-    maxContentWidth = Math.max(maxContentWidth, contentWidth);
-  }
-
-  const contentTotalWidth = maxContentWidth + config.padding;
-  const finalWidth = Math.max(headerTotalWidth, contentTotalWidth);
-  return Math.max(config.minWidth, Math.min(finalWidth, config.maxWidth));
-};
 
 // 轻量级 Cell Renderer（支持选中状态）
 const LightweightCellRenderer = React.memo((params: any) => {
@@ -172,6 +74,28 @@ const LightweightCellRenderer = React.memo((params: any) => {
   return prevProps.value === nextProps.value;
 });
 LightweightCellRenderer.displayName = 'LightweightCellRenderer';
+
+// 布尔值 Cell Renderer（专门处理Bit类型）
+const BooleanCellRenderer = React.memo((params: any) => {
+  if (params.value == null) {
+    return <span className="ag-cell-null">NULL</span>;
+  }
+
+  const boolValue = params.value === true || params.value === 'true' || params.value === 1 || params.value === '1';
+
+  return (
+    <div className="ag-cell-boolean">
+      {boolValue ? (
+        <CheckIcon className={`h-4 w-4 ag-cell-boolean-true`} />
+      ) : (
+        <XCircleIcon className={`h-4 w-4 ag-cell-boolean-false`} />
+      )}
+    </div>
+  );
+}, (prevProps, nextProps) => {
+  return prevProps.value === nextProps.value;
+});
+BooleanCellRenderer.displayName = 'BooleanCellRenderer';
 
 // 优化的日期 Cell Renderer
 const OptimizedDateCellRenderer = React.memo((params: any) => {
@@ -202,33 +126,6 @@ const OptimizedDateCellRenderer = React.memo((params: any) => {
   return prevProps.value === nextProps.value;
 });
 OptimizedDateCellRenderer.displayName = 'OptimizedDateCellRenderer';
-
-const formatRowCount = (count: number): string => {
-  if (count >= 1000000) return `${(count / 1000000).toFixed(1)}M`;
-  if (count >= 1000) return `${(count / 1000).toFixed(1)}K`;
-  return count ? count.toString() : '0';
-};
-
-// 生成简洁的 Tab 标题提示（优化显示宽度）
-const generateTabTitle = (tab: any): string => {
-  // 根据内容动态调整标题长度
-  const maxTitleLength = 22;
-  let baseTitle = tab.title;
-  
-  // 如果标题过长，进行智能截断
-  if (baseTitle.length > maxTitleLength) {
-    // 优先保留前面的关键信息
-    baseTitle = `${baseTitle.substring(0, maxTitleLength - 3)}...`;
-  }
-  
-  if (tab.affectedRows !== undefined) {
-    const formattedCount = formatRowCount(tab.affectedRows);
-    return `${baseTitle} | ${formattedCount} 行受影响`;
-  } else {
-    const formattedCount = formatRowCount(tab.rowCount);
-    return `${baseTitle} | ${formattedCount} 行数据`;
-  }
-};
 
 const CustomInnerHeader = React.memo((props: any) => {
   const { displayName, columnType } = props;
@@ -262,33 +159,7 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, isLoading = false, on
 
   // 异步列宽计算器（带缓存）
   const calculateColumnWidthAsync = useMemo(() => {
-    const widthCache = new Map<string, number>();
-
-    return async (
-      columnName: string,
-      columnData: any[],
-      columnType: string = '',
-      config: ColumnWidthConfig = DEFAULT_CONFIG
-    ): Promise<number> => {
-      const cacheKey = `${columnName}-${columnType}-${columnData.length}-${JSON.stringify(config)}`;
-      if (widthCache.has(cacheKey)) {
-        return widthCache.get(cacheKey)!;
-      }
-
-      return new Promise((resolve) => {
-        const calculate = () => {
-          const width = calculateColumnWidth(columnName, columnData, columnType, config);
-          widthCache.set(cacheKey, width);
-          resolve(width);
-        };
-
-        if ('requestIdleCallback' in window) {
-          (window as any).requestIdleCallback(calculate);
-        } else {
-          setTimeout(calculate, 0);
-        }
-      });
-    };
+    return createAsyncColumnWidthCalculator(DEFAULT_COLUMN_CONFIG);
   }, []);
 
   // 生成基础列定义（快速渲染）
@@ -298,12 +169,21 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, isLoading = false, on
     return resultSet.columns.map((columnName, index) => {
       const columnType = resultSet.column_types?.[index] || '';
       const isDateColumn = columnType === 'Datetime' || columnType === 'Datetimen';
+      const isBoolColumn = columnType === 'Bit';
+
+      // 选择合适的单元格渲染器
+      let cellRenderer = LightweightCellRenderer;
+      if (isDateColumn) {
+        cellRenderer = OptimizedDateCellRenderer;
+      } else if (isBoolColumn) {
+        cellRenderer = BooleanCellRenderer;
+      }
 
       return {
         headerName: columnName,
         field: columnName,
         width: 150, // 固定初始宽度
-        minWidth: Math.max(DEFAULT_CONFIG.minWidth, 140),
+        minWidth: Math.max(DEFAULT_COLUMN_CONFIG.minWidth, 140),
         headerComponentParams: {
           innerHeaderComponent: CustomInnerHeader,
           innerHeaderComponentParams: {
@@ -311,7 +191,7 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, isLoading = false, on
             columnType: columnType
           }
         },
-        cellRenderer: isDateColumn ? OptimizedDateCellRenderer : LightweightCellRenderer,
+        cellRenderer: cellRenderer,
         suppressKeyboardEvent: () => false,
         suppressMovable: false,
         // 用 context 存储自定义索引
@@ -390,7 +270,7 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, isLoading = false, on
   useEffect(() => {
     setSelectedColumn('');
     setColumnSearchOpen(false);
-    
+
     // 🔥 简单解决方案：每次切换tab时，清除该tab的优化状态，强制重新计算
     if (activeTab) {
       setOptimizedTabs(prev => {
@@ -422,14 +302,43 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, isLoading = false, on
   const exportToCsv = useCallback((tabId: string) => {
     const gridApi = gridApis[tabId];
     if (gridApi) {
-      const now = new Date();
-      const timestamp = now.toLocaleString('sv-SE', { timeZone: 'Asia/Shanghai' }).replace(/[\s:]/g, '-');
+      const timestamp = formatTimestamp();
       gridApi.exportDataAsCsv({ fileName: `query_result_${timestamp}.csv` });
       toast.success("导出成功", {
         description: "数据已导出为CSV文件。"
       });
     }
   }, [gridApis, toast]);
+
+  // 生成SQL Server INSERT语句
+  const generateInsertStatement = useCallback(async (tabId: string) => {
+    const tabData = tabsData.find(tab => tab.id === tabId);
+    if (!tabData?.resultSet.columns || !tabData.resultSet.rows || tabData.resultSet.rows.length === 0) {
+      toast.error("生成失败", {
+        description: "没有可用的数据行"
+      });
+      return;
+    }
+
+    const columns = tabData.resultSet.columns;
+    const columnTypes = tabData.resultSet.column_types || [];
+    const firstRow = tabData.resultSet.rows[0];
+
+    // 使用工具函数生成INSERT语句
+    const insertStatement = generateSqlServerInsert('Table', columns, columnTypes, firstRow);
+
+    // 复制到剪贴板
+    const success = await copyToClipboard(insertStatement);
+    if (success) {
+      toast.success("INSERT语句已生成", {
+        description: "SQL INSERT语句已复制到剪贴板"
+      });
+    } else {
+      toast.error("复制失败", {
+        description: "无法访问剪贴板，请手动复制"
+      });
+    }
+  }, [tabsData, toast]);
 
   const handleQuickFilterChange = useCallback((value: string) => {
     if (quickFilterTimeoutRef.current) {
@@ -630,7 +539,7 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, isLoading = false, on
     sortable: true,
     filter: true,
     resizable: true,
-    minWidth: DEFAULT_CONFIG.minWidth,
+    minWidth: DEFAULT_COLUMN_CONFIG.minWidth,
     suppressKeyboardEvent: () => false,
     suppressMovable: false,
   }), []);
@@ -713,14 +622,9 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, isLoading = false, on
                       <span className="text-sm text-muted-foreground">
                         返回 <strong>{tab.rowCount.toLocaleString()}</strong> 行数据
                       </span>
-                      {/* {optimizedTabs.has(tab.id) && (
-                          <Badge variant="outline" className="text-xs">
-                            已优化
-                          </Badge>
-                        )} */}
                       {selectedCell && (
                         <Badge variant="secondary" className="text-xs">
-                          已选中单元格(第{selectedCell.rowIndex + 1}行,第{selectedCell.colIndex >= 0 ? selectedCell.colIndex + 1 : '?'}列)
+                          已选中单元格(第{selectedCell.rowIndex + 1}行,列名[{selectedCell.colId}])
                         </Badge>
                       )}
                     </div>
@@ -813,6 +717,13 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, isLoading = false, on
                         >
                           <ZapIcon className="h-4 w-4 mr-2" />
                           自适应列宽
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onClick={() => generateInsertStatement(tab.id)}
+                          disabled={!gridApis[tab.id] || !tab.resultSet.rows || tab.resultSet.rows.length === 0}
+                        >
+                          <CodeIcon className="h-4 w-4 mr-2" />
+                          生成INSERT语句
                         </DropdownMenuItem>
                         <DropdownMenuItem
                           onClick={() => exportToCsv(tab.id)}

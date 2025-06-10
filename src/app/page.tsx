@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useRef, useEffect } from "react"
+import { useState, useRef, useEffect, useCallback } from "react"
 import SessionSelector from "@/components/session/SessionSelector"
 import WorkspaceSelector from "@/components/sql/WorkspaceSelector"
 import EditorTabs from "@/components/sql/workbench/EditorTabs"
@@ -145,9 +145,10 @@ export default function SqlWorkbenchPage() {
   }
 
   // 新增：处理选中文本变化
-  const handleSelectionChange = (selectedText: string) => {
-    setSelectedText(selectedText)
-  }
+  const handleSelectionChange = useCallback((selectedText: string) => {
+    // 只有当选中文本真正改变时才更新状态
+    setSelectedText(prev => prev === selectedText ? prev : selectedText)
+  }, [])
 
   // 处理工作区切换
   const handleWorkspaceChange = (workspace: Workspace) => {

@@ -341,7 +341,7 @@ async function performIncrementalUpdate(sessionId: string): Promise<void> {
     )
     
     console.log(`增量更新完成: 新增${result.added}, 更新${result.updated}, 删除${result.deleted}`)
-    toast.success(`存储过程缓存增量更新完成: 新增${result.added}, 更新${result.updated}, 删除${result.deleted}`)
+    //toast.success(`存储过程缓存增量更新完成: 新增${result.added}, 更新${result.updated}, 删除${result.deleted}`)
 
     // 如果有变化，更新内存缓存
     if (result.added > 0 || result.updated > 0 || result.deleted > 0) {
