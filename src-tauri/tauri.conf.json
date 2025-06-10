@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "sqlserver-viewer-lite",
-  "version": "0.0.5",
+  "version": "0.0.6",
   "identifier": "com.sqlserver-viewer-lite.app",
   "build": {
     "beforeDevCommand": "pnpm dev",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "sqlserver轻量编辑器",
+        "title": "sqlserver轻量查询工具",
         "resizable": true,
         "fullscreen": false,
         "maximized": true,
