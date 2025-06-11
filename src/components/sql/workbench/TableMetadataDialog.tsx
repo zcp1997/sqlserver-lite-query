@@ -23,6 +23,7 @@ import {
   Loader2,
   FileText,
   Layers3,
+  Eye,
 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -66,6 +67,9 @@ interface TableMetadata {
     update_action?: string
     status_enabled?: string
     status_for_replication?: string
+  }>
+  reference_views?: Array<{
+    table_is_referenced_by_views: string
   }>
 }
 
@@ -235,6 +239,12 @@ export default function TableMetadataDialog({ open, onOpenChange, activeSession 
             constraint_type: row.constraint_type || "",
             constraint_name: row.constraint_name || "",
             constraint_keys: row.constraint_keys || "",
+          }))
+        }
+
+        if (result.result_sets[7]?.rows.length > 0) {
+          metadata.reference_views = result.result_sets[7].rows.map((row) => ({
+            table_is_referenced_by_views: row["Table is referenced by views"] || "",
           }))
         }
 
@@ -425,42 +435,10 @@ export default function TableMetadataDialog({ open, onOpenChange, activeSession 
                   </div>
                 ) : tableMetadata ? (
                   <div className="h-full flex flex-col space-y-6 min-h-0">
-                    {/* 表基本信息 */}
-                    {/* {tableMetadata.table_info && (
-                      <Card className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/20 dark:to-indigo-950/20 border-blue-200 dark:border-blue-800 flex-shrink-0">
-                        <CardContent className="p-4">
-                          <div className="flex items-center justify-between gap-6 flex-wrap">
-                            <div className="flex items-center gap-2">
-                              <Info className="h-4 w-4 text-blue-600 dark:text-blue-400" />
-                              <span className="font-semibold text-blue-900 dark:text-blue-100">表信息</span>
-                            </div>
-                            <div className="flex items-center gap-6 flex-wrap text-sm">
-                              <div className="flex items-center gap-2">
-                                <Table2 className="h-4 w-4 text-blue-600 dark:text-blue-400" />
-                                <span className="text-muted-foreground">表名:</span>
-                                <span className="font-medium font-inter">{tableMetadata.table_info.name}</span>
-                              </div>
-                              <div className="flex items-center gap-2">
-                                <User className="h-4 w-4 text-green-600 dark:text-green-400" />
-                                <span className="text-muted-foreground">所有者:</span>
-                                <span className="font-medium font-inter">{tableMetadata.table_info.owner}</span>
-                              </div>
-                              <div className="flex items-center gap-2">
-                                <Calendar className="h-4 w-4 text-orange-600 dark:text-orange-400" />
-                                <span className="text-muted-foreground">创建日期:</span>
-                                <span className="font-medium font-inter text-xs">
-                                  {new Date(tableMetadata.table_info.created_datetime).toLocaleDateString()}
-                                </span>
-                              </div>
-                            </div>
-                          </div>
-                        </CardContent>
-                      </Card>
-                    )} */}
 
                     {/* 标签页内容 */}
                     <Tabs defaultValue="columns" className="flex-1 flex flex-col min-h-0">
-                      <TabsList className="grid w-full grid-cols-3 h-12 flex-shrink-0">
+                      <TabsList className="grid w-full grid-cols-4 h-12 flex-shrink-0">
                         <TabsTrigger value="columns" className="flex items-center gap-2 text-sm">
                           <Type className="h-4 w-4" />列 ({tableMetadata.columns?.length || 0})
                         </TabsTrigger>
@@ -471,6 +449,10 @@ export default function TableMetadataDialog({ open, onOpenChange, activeSession 
                         <TabsTrigger value="constraints" className="flex items-center gap-2 text-sm">
                           <Shield className="h-4 w-4" />
                           约束 ({tableMetadata.constraints?.length || 0})
+                        </TabsTrigger>
+                        <TabsTrigger value="reference_views" className="flex items-center gap-2 text-sm">
+                          <Eye className="h-4 w-4" />
+                          引用视图 ({tableMetadata.reference_views?.length || 0})
                         </TabsTrigger>
                       </TabsList>
 
@@ -652,6 +634,40 @@ export default function TableMetadataDialog({ open, onOpenChange, activeSession 
                                 <div className="text-center">
                                   <Shield className="h-12 w-12 mx-auto mb-4 opacity-50" />
                                   <p>该表没有约束信息</p>
+                                </div>
+                              </div>
+                            )}
+                          </CardContent>
+                        </Card>
+                      </TabsContent>
+
+                      <TabsContent value="reference_views" className="flex-1 mt-4 overflow-hidden min-h-0">
+                        <Card className="h-full flex flex-col min-h-0">
+                          <CardContent className="flex-1 overflow-hidden min-h-0">
+                            {tableMetadata.reference_views && tableMetadata.reference_views.length > 0 ? (
+                              <ScrollArea className="h-full w-full">
+                                <div className="p-6 space-y-4">
+                                  {tableMetadata.reference_views.map((view, idx) => (
+                                    <Card key={view.table_is_referenced_by_views} className="border-l-4 border-l-orange-500">
+                                      <CardContent className="p-4">
+                                        <div className="flex items-start gap-3">
+                                          <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-orange-100 dark:bg-orange-900/20 mt-0.5">
+                                            <Eye className="h-4 w-4 text-orange-600 dark:text-orange-400" />
+                                          </div>
+                                          <div className="flex-1 space-y-2">
+                                            <h4 className="font-semibold text-primary font-inter">{view.table_is_referenced_by_views}</h4>
+                                          </div>
+                                        </div>
+                                      </CardContent>
+                                    </Card>
+                                  ))}
+                                </div>
+                              </ScrollArea>
+                            ) : (
+                              <div className="flex items-center justify-center h-full text-muted-foreground">
+                                <div className="text-center">
+                                  <Eye className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                                  <p>该表没有引用视图</p>
                                 </div>
                               </div>
                             )}

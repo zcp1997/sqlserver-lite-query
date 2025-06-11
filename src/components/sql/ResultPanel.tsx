@@ -53,7 +53,7 @@ import {
   DEFAULT_COLUMN_CONFIG,
 } from '@/lib/columnUtils'
 import { performanceMonitor } from '@/lib/performanceUtils'
-import { generateSqlServerInsert, copyToClipboard } from '@/lib/sqlUtils'
+import { generateSqlServerInsertToClipboard } from '@/lib/sqlUtils'
 import { formatRowCount, generateTabTitle, formatTimestamp } from '@/lib/formatUtils'
 
 ModuleRegistry.registerModules([AllCommunityModule]);
@@ -313,22 +313,16 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, isLoading = false, on
   // 生成SQL Server INSERT语句
   const generateInsertStatement = useCallback(async (tabId: string) => {
     const tabData = tabsData.find(tab => tab.id === tabId);
-    if (!tabData?.resultSet.columns || !tabData.resultSet.rows || tabData.resultSet.rows.length === 0) {
-      toast.error("生成失败", {
-        description: "没有可用的数据行"
-      });
+    if (!tabData?.resultSet.columns) {
       return;
     }
 
     const columns = tabData.resultSet.columns;
     const columnTypes = tabData.resultSet.column_types || [];
-    const firstRow = tabData.resultSet.rows[0];
+    const firstRow = tabData.resultSet.rows[0] || {};
 
     // 使用工具函数生成INSERT语句
-    const insertStatement = generateSqlServerInsert('Table', columns, columnTypes, firstRow);
-
-    // 复制到剪贴板
-    const success = await copyToClipboard(insertStatement);
+    const success = await generateSqlServerInsertToClipboard('Table', columns, columnTypes, firstRow);
     if (success) {
       toast.success("INSERT语句已生成", {
         description: "SQL INSERT语句已复制到剪贴板"
@@ -720,7 +714,7 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, isLoading = false, on
                         </DropdownMenuItem>
                         <DropdownMenuItem
                           onClick={() => generateInsertStatement(tab.id)}
-                          disabled={!gridApis[tab.id] || !tab.resultSet.rows || tab.resultSet.rows.length === 0}
+                          disabled={!gridApis[tab.id]}
                         >
                           <CodeIcon className="h-4 w-4 mr-2" />
                           生成INSERT语句

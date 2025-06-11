@@ -1,36 +1,20 @@
 /**
- * 格式化SQL Server值
- * @param value 原始值
- * @param columnType 列类型
- * @returns 格式化后的SQL值
+ * 获取默认值
  */
-export const formatSqlServerValue = (value: any, columnType: string): string => {
-  // 处理NULL值
-  if (value === null || value === undefined) {
-    return 'NULL';
-  }
-
-  // 根据列类型格式化值
+const getDefaultValue = (columnType: string): any => {
   switch (columnType) {
     case 'Datetime':
     case 'Datetimen':
       return 'GETDATE()';
-    
     case 'Bit':
-      // 布尔值根据实际值决定，但如果用户要求默认false则使用以下逻辑
-      const boolValue = value === true || value === 'true' || value === 1 || value === '1';
-      return boolValue ? '1' : '0';
-    
+      return false;
     case 'NVarchar':
     case 'Varchar':
     case 'NChar':
     case 'Char':
     case 'NText':
     case 'Text':
-      // 字符串类型，转义单引号
-      const stringValue = String(value).replace(/'/g, "''");
-      return `N'${stringValue}'`;
-    
+      return '';
     case 'Int4':
     case 'Int':
     case 'BigInt':
@@ -42,60 +26,100 @@ export const formatSqlServerValue = (value: any, columnType: string): string => 
     case 'Real':
     case 'Money':
     case 'SmallMoney':
-      // 数值类型
-      return String(value);
-    
+      return 0;
     default:
-      // 默认当作字符串处理
+      return null;
+  }
+};
+
+/**
+ * 格式化SQL Server值
+ */
+export const formatSqlServerValue = (value: any, columnType: string): string => {
+  if (value === null || value === undefined) {
+    if (columnType === 'Datetime' || columnType === 'Datetimen') {
+      return 'GETDATE()';
+    }
+    return 'NULL';
+  }
+
+  switch (columnType) {
+    case 'Datetime':
+    case 'Datetimen':
+      return 'GETDATE()';
+
+    case 'Bit':
+      const boolValue = value === true || value === 'true' || value === 1 || value === '1';
+      return boolValue ? '1' : '0';
+
+    case 'NVarchar':
+    case 'Varchar':
+    case 'NChar':
+    case 'Char':
+    case 'NText':
+    case 'Text':
+      const stringValue = String(value).replace(/'/g, "''");
+      return `N'${stringValue}'`;
+
+    case 'Int4':
+    case 'Int':
+    case 'BigInt':
+    case 'SmallInt':
+    case 'TinyInt':
+    case 'Decimal':
+    case 'Numeric':
+    case 'Float':
+    case 'Real':
+    case 'Money':
+    case 'SmallMoney':
+      return String(value);
+
+    default:
       if (typeof value === 'string') {
-        const stringValue = String(value).replace(/'/g, "''");
-        return `'${stringValue}'`;
-      } else {
-        return String(value);
+        const stringVal = value.replace(/'/g, "''");
+        return `'${stringVal}'`;
       }
+      return String(value);
   }
 };
 
 /**
  * 生成SQL Server INSERT语句
- * @param tableName 表名（可选，默认为[Table]）
- * @param columns 列名数组
- * @param columnTypes 列类型数组
- * @param rowData 行数据对象
- * @returns 生成的INSERT语句
  */
-export const generateSqlServerInsert = (
+export const generateSqlServerInsertToClipboard = async (
   tableName: string = 'Table',
   columns: string[],
   columnTypes: string[],
-  rowData: Record<string, any>
-): string => {
-  // 格式化列名（用方括号包裹）
+  rowData: Record<string, any> = {}
+): Promise<boolean> => {
   const columnList = columns.map(col => `[${col}]`).join(', ');
 
-  // 格式化值
   const values = columns.map((columnName, index) => {
-    const value = rowData[columnName];
     const columnType = columnTypes[index] || '';
-    return formatSqlServerValue(value, columnType);
+    const rawValue = rowData[columnName];
+
+    // 如果 rowData 没提供该字段，则填默认值
+    const finalValue = rawValue !== undefined && rawValue !== null ? rawValue : getDefaultValue(columnType);
+    return formatSqlServerValue(finalValue, columnType);
   }).join(', ');
 
-  // 生成完整的INSERT语句
-  return `INSERT INTO [${tableName}] (${columnList}) VALUES\n(${values});`;
+  const text = `INSERT INTO [${tableName}] (${columnList}) VALUES\n(${values});`;
+  const success = await copyToClipboard(text);
+  return success;
 };
+
 
 /**
  * 复制文本到剪贴板
  * @param text 要复制的文本
  * @returns Promise<boolean> 复制是否成功
  */
-export const copyToClipboard = async (text: string): Promise<boolean> => {
+const copyToClipboard = async (text: string): Promise<boolean> => {
   try {
     await navigator.clipboard.writeText(text);
     return true;
   } catch (error) {
     console.error('Failed to copy to clipboard:', error);
-    console.log('Text to copy:', text);
     return false;
   }
 }; 
