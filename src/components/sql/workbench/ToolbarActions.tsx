@@ -13,6 +13,7 @@ import {
   FileTextIcon,
   MinusIcon,
   PlusIcon,
+  TableIcon,
 } from "lucide-react"
 import {
   DropdownMenu,
@@ -29,6 +30,7 @@ interface ToolbarActionsProps {
   activeSession: Session | null
   onOpenDbObjectDialog: (type?: DatabaseObjectType) => void
   onOpenScriptDialog: () => void
+  onOpenTableMetadataDialog: () => void
   isExecuting?: boolean
   onExecuteQuery?: () => void
   onStopExecution?: () => void
@@ -43,6 +45,7 @@ export default function ToolbarActions({
   activeSession,
   onOpenDbObjectDialog,
   onOpenScriptDialog,
+  onOpenTableMetadataDialog,
   isExecuting = false,
   onExecuteQuery,
   onStopExecution,
@@ -82,6 +85,10 @@ export default function ToolbarActions({
             <DropdownMenuLabel>数据库对象</DropdownMenuLabel>
             <DropdownMenuSeparator />
             <DropdownMenuGroup>
+              <DropdownMenuItem onClick={onOpenTableMetadataDialog}>
+                <TableIcon className="mr-2 h-4 w-4" />
+                表元数据查询
+              </DropdownMenuItem>
               <DropdownMenuItem onClick={() => onOpenDbObjectDialog(DatabaseObjectType.StoredProcedure)}>
                 <Settings className="mr-2 h-4 w-4" />
                 存储过程查询

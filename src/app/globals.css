@@ -167,6 +167,11 @@
   body {
     @apply bg-background text-foreground;
   }
+  
+  /* 添加Inter字体类 */
+  .font-inter {
+    font-family: var(--font-inter);
+  }
 }
 
 /* AG Grid 主题字体配置 - 精确控制字体和粗细 */

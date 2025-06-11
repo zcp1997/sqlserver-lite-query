@@ -22,6 +22,7 @@ import { DatabaseObjectType, ConnectionConfig } from "@/types/database"
 import ToolbarActions from "@/components/sql/workbench/ToolbarActions"
 import DatabaseObjectsDialog from "@/components/sql/workbench/DatabaseObjectsDialog"
 import SqlScriptsDialog from "@/components/sql/workbench/SqlScriptsDialog"
+import TableMetadataDialog from "@/components/sql/workbench/TableMetadataDialog"
 import QueryWorkspace, { type QueryWorkspaceRef } from "@/components/sql/workbench/QueryWorkspace"
 import type { Workspace } from "@/types/workspace"
 import { ThemeSwitcher } from "@/components/ui/theme-switcher"
@@ -69,6 +70,9 @@ export default function SqlWorkbenchPage() {
 
   // SQL脚本对话框状态
   const [scriptDialogOpen, setScriptDialogOpen] = useState(false)
+
+  // 表元数据对话框状态
+  const [tableMetadataDialogOpen, setTableMetadataDialogOpen] = useState(false)
 
   // 新增：存储选中文本的状态
   const [selectedText, setSelectedText] = useState<string>("")
@@ -190,6 +194,11 @@ export default function SqlWorkbenchPage() {
   const handleOpenDbObjectDialog = (type: DatabaseObjectType = DatabaseObjectType.StoredProcedure) => {
     setDbObjectType(type)
     setDbObjectDialogOpen(true)
+  }
+
+  // 处理打开表元数据对话框
+  const handleOpenTableMetadataDialog = () => {
+    setTableMetadataDialogOpen(true)
   }
 
   // 处理清空所有数据
@@ -318,6 +327,7 @@ export default function SqlWorkbenchPage() {
         activeSession={activeSession}
         onOpenDbObjectDialog={handleOpenDbObjectDialog}
         onOpenScriptDialog={() => setScriptDialogOpen(true)}
+        onOpenTableMetadataDialog={handleOpenTableMetadataDialog}
         isExecuting={isExecuting}
         onExecuteQuery={handleExecuteQuery}
         onStopExecution={stopExecution}
@@ -354,6 +364,13 @@ export default function SqlWorkbenchPage() {
         open={scriptDialogOpen}
         onOpenChange={setScriptDialogOpen}
         updateTabContent={updateTabContent}
+      />
+
+      {/* 表元数据对话框 */}
+      <TableMetadataDialog
+        open={tableMetadataDialogOpen}
+        onOpenChange={setTableMetadataDialogOpen}
+        activeSession={activeSession}
       />
 
       {/* 连接配置对话框 */}

@@ -64,11 +64,11 @@ export async function executeQuery(session_id: string, sql: string): Promise<Que
 
     console.log('executeQuery 结果:', result)
 
-    toast.success("查询完成", { description: "数据库语句执行成功", duration: 1500 })
+    //toast.success("查询完成", { description: "数据库语句执行成功", duration: 1500 })
     return result
 
   } catch (error) {
-    toast.error("查询执行失败", { description: "数据库语句执行失败", duration: 1500 })
+    //toast.error("查询执行失败", { description: "数据库语句执行失败", duration: 1500 })
     return {
       result_sets: [{
         columns: [],
