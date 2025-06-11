@@ -293,7 +293,7 @@ export async function preloadProcedures(sessionId: string, forceFullReload = fal
         )
         console.log(`持久化完成: 新增${result.added}, 更新${result.updated}, 删除${result.deleted}`)
         
-        toast.success(`当前会话存储过程定义预热完成！`)
+        console.log(`会话 ${sessionId} 存储过程定义预热完成！`)
       } catch (error) {
         console.warn('持久化保存失败:', error)
       }
@@ -380,7 +380,10 @@ function filterProceduresSynchronously(sessionId: string, keyword: string): any[
   if (!cache || cache.isLoading) {
     // 如果缓存不存在或正在加载，触发预加载但返回空结果
     if (!cache?.isLoading) {
-      preloadProcedures(sessionId).catch(console.error)
+      // 使用setTimeout确保完全异步，不阻塞当前调用栈
+      setTimeout(() => {
+        preloadProcedures(sessionId).catch(console.error)
+      }, 0)
     }
     return []
   }
@@ -394,7 +397,10 @@ function filterProceduresSynchronously(sessionId: string, keyword: string): any[
     const timeSinceLastRefresh = now - (cache.lastRefreshAttempt || 0)
     if (timeSinceLastRefresh > REFRESH_COOLDOWN) {
       console.log('缓存即将过期，触发后台刷新')
-      preloadProcedures(sessionId).catch(console.error)
+      // 使用setTimeout确保完全异步，不阻塞当前调用栈
+      setTimeout(() => {
+        preloadProcedures(sessionId).catch(console.error)
+      }, 0)
     }
   }
   
@@ -439,9 +445,11 @@ async function getProcedureSuggestions(sessionId: string, keyword: string): Prom
   const cache = preloadedProcedureCache[sessionId]
   if (!cache || (!cache.isLoading && Date.now() - cache.timestamp > PRELOAD_CACHE_TTL)) {
     // 触发预加载，但不等待结果（避免阻塞UI）
-    preloadProcedures(sessionId).then(() => {
-      console.log('预加载完成，下次输入将显示建议')
-    }).catch(console.error)
+    setTimeout(() => {
+      preloadProcedures(sessionId).then(() => {
+        console.log('预加载完成，下次输入将显示建议')
+      }).catch(console.error)
+    }, 0)
   }
   
   // 如果确实没有缓存数据且有具体搜索词，回退到原来的异步搜索

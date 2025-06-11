@@ -1120,56 +1120,85 @@ pub async fn search_procedure_suggestions_advanced(
     // 使用临时表和多结果集的高级SQL查询
     let advanced_query = format!(
         r#"
-        -- 创建临时表存储匹配的存储过程
-        CREATE TABLE #ProcedureMatches (
-            object_id INT PRIMARY KEY, -- 添加主键以提高性能并确保唯一性
-            schema_name NVARCHAR(128),
-            procedure_name NVARCHAR(128),
-            match_priority INT
-        );
-
-        -- 插入匹配的存储过程（按名称搜索）
-        -- 移除了 DISTINCT，因为 object_id 已经是唯一的
-        INSERT INTO #ProcedureMatches (object_id, schema_name, procedure_name, match_priority)
-        SELECT
+        WITH ProcedureSearch AS (
+        -- 按名称搜索
+        SELECT 
             p.object_id,
             SCHEMA_NAME(p.schema_id) as schema_name,
             p.name as procedure_name,
             1 as match_priority
         FROM sys.procedures p
         WHERE p.name LIKE N'{}%'
-        ORDER BY p.name;
-
-        -- 插入匹配的存储过程（按Schema搜索，排除重复）
-        -- 优化了 Schema 搜索，并使用 NOT EXISTS
-        INSERT INTO #ProcedureMatches (object_id, schema_name, procedure_name, match_priority)
-        SELECT
+        
+        UNION
+        
+        -- 按Schema搜索
+        SELECT 
             p.object_id,
-            s.name as schema_name, --直接从 sys.schemas 获取
+            s.name as schema_name,
             p.name as procedure_name,
             2 as match_priority
         FROM sys.procedures p
-        INNER JOIN sys.schemas s ON p.schema_id = s.schema_id -- JOIN sys.schemas
+        INNER JOIN sys.schemas s ON p.schema_id = s.schema_id
         WHERE s.name LIKE N'{}%'
-            AND NOT EXISTS (SELECT 1 FROM #ProcedureMatches pm WHERE pm.object_id = p.object_id) -- 使用 NOT EXISTS
-        ORDER BY s.name, p.name;
-
-        -- 结果集1：存储过程基本信息
+        ),
+        DistinctProcedures AS (
+            -- 去重并保持最高优先级
+            SELECT 
+                object_id,
+                schema_name,
+                procedure_name,
+                MIN(match_priority) as match_priority
+            FROM ProcedureSearch
+            GROUP BY object_id, schema_name, procedure_name
+        )
+        -- 结果集1：存储过程基本信息（类似原查询但更高效）
         SELECT 
-            pm.object_id,
-            pm.schema_name,
-            pm.procedure_name,
-            pm.match_priority,
-            COUNT(param.parameter_id) as parameter_count -- COUNT(column_name) 忽略 NULLs，对于 LEFT JOIN 行为正确
-        FROM #ProcedureMatches pm
-        LEFT JOIN sys.parameters param ON pm.object_id = param.object_id
-            AND param.name IS NOT NULL AND param.name != '' -- 确保只统计有效命名的参数
-        GROUP BY pm.object_id, pm.schema_name, pm.procedure_name, pm.match_priority
-        ORDER BY pm.match_priority, pm.schema_name, pm.procedure_name;
+            dp.object_id,
+            dp.schema_name,
+            dp.procedure_name,
+            dp.match_priority,
+            ISNULL(param_stats.parameter_count, 0) as parameter_count,
+            p.create_date,
+            p.modify_date
+        FROM DistinctProcedures dp
+        INNER JOIN sys.procedures p ON dp.object_id = p.object_id
+        LEFT JOIN (
+            -- 预聚合参数统计，避免在主查询中GROUP BY
+            SELECT 
+                object_id,
+                COUNT(*) as parameter_count
+            FROM sys.parameters
+            WHERE name IS NOT NULL AND name != ''
+            GROUP BY object_id
+        ) param_stats ON dp.object_id = param_stats.object_id
+        ORDER BY dp.match_priority, dp.schema_name, dp.procedure_name;
 
-        -- 结果集2：参数详细信息
+        -- 结果集2：参数详细信息（优化JOIN顺序）
+        WITH DistinctProcedures AS (
+            -- 重复CTE定义以保持查询独立性
+            SELECT 
+                p.object_id,
+                SCHEMA_NAME(p.schema_id) as schema_name,
+                p.name as procedure_name,
+                1 as match_priority
+            FROM sys.procedures p
+            WHERE p.name LIKE N'{}%'
+            
+            UNION
+            
+            SELECT 
+                p.object_id,
+                s.name as schema_name,
+                p.name as procedure_name,
+                2 as match_priority
+            FROM sys.procedures p
+            INNER JOIN sys.schemas s ON p.schema_id = s.schema_id
+            WHERE s.name LIKE N'{}%'
+        )
         SELECT 
-            pm.object_id,
+            dp.object_id,
+            dp.schema_name + '.' + dp.procedure_name as full_procedure_name,
             param.name as parameter_name,
             TYPE_NAME(param.user_type_id) as data_type,
             param.max_length,
@@ -1177,16 +1206,17 @@ pub async fn search_procedure_suggestions_advanced(
             param.scale,
             param.is_output,
             param.has_default_value,
-            param.parameter_id -- 保持原始 parameter_id 用于排序或识别
-        FROM #ProcedureMatches pm
-        INNER JOIN sys.parameters param ON pm.object_id = param.object_id
-        WHERE param.name IS NOT NULL AND param.name != '' -- 确保只选择有效命名的参数
-        ORDER BY pm.object_id, param.parameter_id; -- 按 object_id 后按参数原始顺序排序
-
-        -- 清理临时表
-        DROP TABLE #ProcedureMatches;
-    "#,
-        keyword, keyword
+            param.parameter_id
+        FROM (
+            SELECT object_id, schema_name, procedure_name, MIN(match_priority) as match_priority
+            FROM DistinctProcedures
+            GROUP BY object_id, schema_name, procedure_name
+        ) dp
+        INNER JOIN sys.parameters param ON dp.object_id = param.object_id
+        WHERE param.name IS NOT NULL AND param.name != ''
+        ORDER BY dp.object_id, param.parameter_id;
+        "#,
+        keyword, keyword, keyword, keyword
     );
 
     // 使用 simple_query 执行多结果集查询

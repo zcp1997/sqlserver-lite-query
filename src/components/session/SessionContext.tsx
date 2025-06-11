@@ -75,15 +75,16 @@ export const SessionProvider = ({ children }: { children: ReactNode }) => {
       setSessions(newSessionsList);
       setActiveSessionState(newSession);
       
-      // 后台预加载存储过程（提高自动补全性能）
-      toast.promise(
-        SqlCacheManager.preloadProceduresForSession(newSession.id),
-        {
-          loading: '正在预加载存储过程信息...',
-          success: '存储过程预加载完成，自动补全性能已优化',
-          error: '存储过程预加载失败，将在使用时动态加载'
-        }
-      )
+      // 后台预加载存储过程（完全异步，不阻塞UI）
+      SqlCacheManager.preloadProceduresForSession(newSession.id)
+        .then(() => {
+          console.log(`会话 ${newSession.connectionName} 存储过程预加载完成`)
+          // 静默完成，不显示toast以避免干扰用户操作
+        })
+        .catch((error) => {
+          console.warn(`会话 ${newSession.connectionName} 存储过程预加载失败:`, error)
+          // 预加载失败不影响正常使用，只记录日志
+        })
       
       // 处理工作区绑定
       const manager = WorkspaceService.getWorkspaces()
@@ -163,17 +164,16 @@ export const SessionProvider = ({ children }: { children: ReactNode }) => {
     const status = SqlCacheManager.getPreloadStatus(session.id)
     if (!status.isLoaded && !status.isLoading) {
       console.log(`为新活动会话 ${session.connectionName} 触发存储过程预加载`)
-      // 静默预加载，避免频繁切换时的toast干扰
-      SqlCacheManager.warmupActiveSession(session.id).then((success) => {
-        if (success) {
-          console.log(`会话 ${session.connectionName} 预加载完成`)
-          // 仅在成功时显示小提示
-          toast.success(`${session.connectionName} 自动补全已就绪`, { duration: 2000 })
-        } else {
-          console.warn(`会话 ${session.connectionName} 预加载失败`)
-          toast.warning(`${session.connectionName} 自动补全加载失败，将在输入时动态加载`, { duration: 2500 })
-        }
-      }).catch(console.error)
+              // 静默预加载，完全在后台进行，不显示任何toast
+        SqlCacheManager.warmupActiveSession(session.id).then((success) => {
+          if (success) {
+            console.log(`会话 ${session.connectionName} 预加载完成`)
+            // 预加载成功，静默完成，不干扰用户操作
+          } else {
+            console.warn(`会话 ${session.connectionName} 预加载失败`)
+            // 预加载失败也静默处理，不显示toast，用户可以正常使用
+          }
+        }).catch(console.error)
     } else if (status.isLoaded) {
       // 如果已经有缓存，检查是否需要后台刷新
       const now = Date.now()

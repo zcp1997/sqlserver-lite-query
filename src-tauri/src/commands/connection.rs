@@ -359,7 +359,6 @@ pub async fn get_columns_for_table(request: ColumnQueryRequest) -> Result<Vec<Co
     }
 }
 
-// 执行单一查询（传统方式，作为备选）
 #[tauri::command]
 pub async fn execute_single_query(request: QueryRequest) -> Result<QueryResult, String> {
     println!("执行单一查询请求，会话ID: {}", request.session_id);
@@ -390,33 +389,51 @@ pub async fn execute_single_query(request: QueryRequest) -> Result<QueryResult, 
 }
 
 // 新增：执行存储过程建议查询（用于自动完成）
+// 使用独立连接避免阻塞主会话
 #[tauri::command]
 pub async fn execute_procedure_suggestions_query(
     request: KeywordQueryRequest,
 ) -> Result<Vec<ProcedureSuggestionItem>, String> {
     println!(
-        "执行存储过程建议查询，会话ID: {}, keyword: {}",
+        "执行存储过程建议查询（独立连接），会话ID: {}, keyword: {}",
         request.session_id, request.keyword
     );
 
-    let mut connections = ACTIVE_CONNECTIONS.lock().await;
-
-    if let Some(client) = connections.get_mut(&request.session_id) {
-        println!("找到会话，开始执行存储过程建议查询");
-        match search_procedure_suggestions_advanced(client, &request.keyword).await {
-            Ok(result) => {
-                println!("执行存储过程建议查询成功，返回 {} 条建议", result.len());
-                Ok(result)
+    // 从配置中获取连接信息，创建独立连接
+    let configs = CONNECTION_CONFIGS.lock().await;
+    if let Some(config) = configs.get(&request.session_id) {
+        let config_clone = config.clone();
+        // 释放配置锁，避免长时间持有
+        drop(configs);
+        
+        println!("找到会话配置，创建独立连接进行存储过程查询");
+        
+        // 创建新的独立连接
+        match create_connection(&config_clone).await {
+            Ok(mut temp_client) => {
+                println!("独立连接创建成功，开始执行存储过程建议查询");
+                match search_procedure_suggestions_advanced(&mut temp_client, &request.keyword).await {
+                    Ok(result) => {
+                        println!("执行存储过程建议查询成功，返回 {} 条建议", result.len());
+                        // temp_client会自动在函数结束时销毁
+                        Ok(result)
+                    }
+                    Err(err) => {
+                        let error_msg = format!("执行错误: {}", err);
+                        println!("{}", error_msg);
+                        Err(error_msg)
+                    }
+                }
             }
             Err(err) => {
-                let error_msg = format!("执行错误: {}", err);
+                let error_msg = format!("创建独立连接失败: {}", err);
                 println!("{}", error_msg);
                 Err(error_msg)
             }
         }
     } else {
         let error_msg = format!(
-            "会话不存在或已过期，请重新连接，会话ID: {}",
+            "会话配置不存在，会话ID: {}",
             request.session_id
         );
         println!("{}", error_msg);
