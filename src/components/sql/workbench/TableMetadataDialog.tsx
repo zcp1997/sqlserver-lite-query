@@ -426,7 +426,7 @@ export default function TableMetadataDialog({ open, onOpenChange, activeSession 
                 ) : tableMetadata ? (
                   <div className="h-full flex flex-col space-y-6 min-h-0">
                     {/* 表基本信息 */}
-                    {tableMetadata.table_info && (
+                    {/* {tableMetadata.table_info && (
                       <Card className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/20 dark:to-indigo-950/20 border-blue-200 dark:border-blue-800 flex-shrink-0">
                         <CardContent className="p-4">
                           <div className="flex items-center justify-between gap-6 flex-wrap">
@@ -445,13 +445,6 @@ export default function TableMetadataDialog({ open, onOpenChange, activeSession 
                                 <span className="text-muted-foreground">所有者:</span>
                                 <span className="font-medium font-inter">{tableMetadata.table_info.owner}</span>
                               </div>
-                              {/* <div className="flex items-center gap-2">
-                                <FileText className="h-4 w-4 text-purple-600 dark:text-purple-400" />
-                                <span className="text-muted-foreground">类型:</span>
-                                <Badge variant="outline" className="font-medium font-inter">
-                                  {tableMetadata.table_info.type}
-                                </Badge>
-                              </div> */}
                               <div className="flex items-center gap-2">
                                 <Calendar className="h-4 w-4 text-orange-600 dark:text-orange-400" />
                                 <span className="text-muted-foreground">创建日期:</span>
@@ -463,7 +456,7 @@ export default function TableMetadataDialog({ open, onOpenChange, activeSession 
                           </div>
                         </CardContent>
                       </Card>
-                    )}
+                    )} */}
 
                     {/* 标签页内容 */}
                     <Tabs defaultValue="columns" className="flex-1 flex flex-col min-h-0">
