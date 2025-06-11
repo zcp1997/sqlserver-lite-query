@@ -59,7 +59,9 @@ const QueryWorkspace = forwardRef<QueryWorkspaceRef, QueryWorkspaceProps>(({
     >
       {/* SQL编辑器面板 */}
       <ResizablePanel 
-        defaultSize={showResultPanel ? 50 : 100} 
+        id="sql-editor-panel"
+        order={1}
+        defaultSize={showResultPanel ? 40 : 100} 
         minSize={showResultPanel ? 30 : 100}
       >
         <div className="flex flex-col h-full max-h-full overflow-hidden">
@@ -85,7 +87,12 @@ const QueryWorkspace = forwardRef<QueryWorkspaceRef, QueryWorkspaceProps>(({
           <ResizableHandle />
 
           {/* 结果面板 */}
-          <ResizablePanel defaultSize={50} minSize={20}>
+          <ResizablePanel 
+            id="result-panel"
+            order={2}
+            defaultSize={60} 
+            minSize={20}
+          >
             {queryResult ? (
               <ResultPanel 
                 result={queryResult} 

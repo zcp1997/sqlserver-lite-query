@@ -103,6 +103,7 @@ const SqlEditor = forwardRef<SqlEditorRef, SqlEditorProps>(({
   const editorRef = useRef<any>(null)
   const monacoRef = useRef<MonacoReact | null>(null)
   const completionProviderRef = useRef<any | null>(null)
+  const debounceTimerRef = useRef<NodeJS.Timeout | null>(null)
   const { resolvedTheme } = useTheme()
   const { activeSession } = useSession()
   const { toast } = useToast()
@@ -120,7 +121,7 @@ const SqlEditor = forwardRef<SqlEditorRef, SqlEditorProps>(({
   // 加载脚本分组
   useEffect(() => {
     if (typeof window === 'undefined') return
-    
+
     try {
       const savedGroups = localStorage.getItem(GROUPS_STORAGE_KEY)
       if (savedGroups) {
@@ -137,7 +138,7 @@ const SqlEditor = forwardRef<SqlEditorRef, SqlEditorProps>(({
   // 获取选中文本或全部文本
   const getTextToSave = useCallback(() => {
     if (!editorRef.current) return ''
-    
+
     const selection = editorRef.current.getSelection()
     if (selection && !selection.isEmpty()) {
       // 有选中文本，返回选中的内容
@@ -154,7 +155,7 @@ const SqlEditor = forwardRef<SqlEditorRef, SqlEditorProps>(({
       toast.error('脚本名称不能为空')
       return
     }
-    
+
     if (!saveDialogScript.content?.trim()) {
       toast.error('脚本内容不能为空')
       return
@@ -164,7 +165,7 @@ const SqlEditor = forwardRef<SqlEditorRef, SqlEditorProps>(({
       // 加载现有脚本
       const savedScripts = localStorage.getItem(SCRIPTS_STORAGE_KEY)
       const existingScripts: SqlScript[] = savedScripts ? JSON.parse(savedScripts) : []
-      
+
       // 创建新脚本
       const now = new Date().toISOString()
       const newScript: SqlScript = {
@@ -176,13 +177,13 @@ const SqlEditor = forwardRef<SqlEditorRef, SqlEditorProps>(({
         createdAt: now,
         updatedAt: now
       }
-      
+
       // 保存到本地存储
       const updatedScripts = [...existingScripts, newScript]
       localStorage.setItem(SCRIPTS_STORAGE_KEY, JSON.stringify(updatedScripts))
-      
+
       toast.success(`已保存脚本: ${newScript.name}`)
-      
+
       // 关闭对话框并重置状态
       setIsSaveDialogOpen(false)
       setSaveDialogScript({
@@ -207,8 +208,8 @@ const SqlEditor = forwardRef<SqlEditorRef, SqlEditorProps>(({
 
     // 生成默认脚本名称
     const firstLine = textToSave.split('\n')[0].trim()
-    const defaultName = firstLine.length > 30 
-      ? firstLine.substring(0, 30) + '...' 
+    const defaultName = firstLine.length > 30
+      ? firstLine.substring(0, 30) + '...'
       : firstLine || '新建脚本'
 
     setSaveDialogScript({
@@ -233,7 +234,7 @@ const SqlEditor = forwardRef<SqlEditorRef, SqlEditorProps>(({
   ): any => {
     // 设置排序优先级：数字越小越靠前
     const sortText = priority === 'high' ? '1' : priority === 'medium' ? '2' : '3'
-    
+
     const item: any = {
       label,
       kind,
@@ -264,7 +265,7 @@ const SqlEditor = forwardRef<SqlEditorRef, SqlEditorProps>(({
       if (selectionChangeTimer) {
         clearTimeout(selectionChangeTimer)
       }
-      
+
       // 设置新的防抖定时器
       selectionChangeTimer = setTimeout(() => {
         const selection = editor.getSelection()
@@ -278,13 +279,25 @@ const SqlEditor = forwardRef<SqlEditorRef, SqlEditorProps>(({
       }, 150) // 150ms 防抖延迟，平衡响应性和性能
     })
 
+    // 监听粘贴事件
+    editor.onDidPaste((e) => {
+      // 粘贴事件发生后，内容需要一点时间才会完全更新到 model 中
+      // 使用一个微小的延迟可以确保我们是在内容更新后触发建议
+      setTimeout(() => {
+        // 手动触发建议
+        if (editor) {
+          editor.getAction('editor.action.triggerSuggest')?.run();
+        }
+      }, 100);
+    });
+
     // 注册右键菜单
     editor.addAction({
       id: 'save-to-scripts',
       label: '保存到脚本',
       contextMenuGroupId: 'navigation',
       contextMenuOrder: 1.5,
-      run: function() {
+      run: function () {
         openSaveDialog()
       }
     })
@@ -307,20 +320,20 @@ const SqlEditor = forwardRef<SqlEditorRef, SqlEditorProps>(({
           // 性能保护：超时控制
           const startTime = Date.now()
           const maxTime = 3000 // 3秒超时
-          
+
           const checkTimeout = () => {
             if (Date.now() - startTime > maxTime) {
               throw new Error('Completion provider timeout')
             }
           }
-          
+
           // 获取当前最新的 activeSession
           const currentSessionId = activeSession?.id || ""
-          
+
           console.log('Completion provider using session ID:', currentSessionId)
-          
+
           checkTimeout()
-          
+
           const word = model.getWordUntilPosition(position)
           const range = {
             startLineNumber: position.lineNumber,
@@ -328,6 +341,10 @@ const SqlEditor = forwardRef<SqlEditorRef, SqlEditorProps>(({
             startColumn: word.startColumn,
             endColumn: word.endColumn,
           }
+
+          // --- 在这里添加下面的日志 ---
+          console.log("Monaco Provider: The final range object is:", JSON.stringify(range));
+          console.log("Monaco Provider: The wordAtCursor object is:", JSON.stringify(word));
 
           const textBeforeCursor = model.getValueInRange({
             startLineNumber: 1,
@@ -352,21 +369,22 @@ const SqlEditor = forwardRef<SqlEditorRef, SqlEditorProps>(({
           // 使用 sqlparse 库进行分析
           const tablesAndAliases = parseTablesAndAliases(fullText)
           const sqlContext = analyzeSqlContext(textBeforeCursor)
-          
-          console.log('解析结果:', { tablesAndAliases, sqlContext })
 
           checkTimeout()
 
-          // 生成动态建议
+          // 我们的 sqlparse 模块现在足够智能，可以直接调用它
+          // 它会根据上下文自己判断该返回什么建议
+          console.log('Monaco Provider: Calling generateDynamicSuggestions...');
           const dynamicSuggestions = await generateDynamicSuggestions(
             currentSessionId,
             textBeforeCursor,
             fullText,
-            sqlContext,
-            tablesAndAliases,
+            analyzeSqlContext(textBeforeCursor), // analyzeSqlContext 现在是 generateDynamicSuggestions 的一部分
+            [], // 这个参数已不再需要，传空数组即可
             createCompletionItem,
             range
-          )
+          );
+          console.log(`Monaco Provider: Received ${dynamicSuggestions.length} dynamic suggestions.`);
 
           checkTimeout()
 
@@ -420,34 +438,17 @@ const SqlEditor = forwardRef<SqlEditorRef, SqlEditorProps>(({
             )
           })
 
+          const finalSuggestions = [...dynamicSuggestions, ...staticSuggestions];
+          console.log(`Monaco Provider: Returning total ${finalSuggestions.length} suggestions.`);
+
           return {
-            suggestions: [...staticSuggestions, ...dynamicSuggestions]
-          }
-          
+            incomplete: false, // 告知 Monaco 这是完整列表
+            suggestions: finalSuggestions
+          };
+
         } catch (error) {
-          console.error('Completion provider error:', error)
-          // 发生错误时返回基本的SQL关键字建议，避免界面完全无响应
-          const basicSuggestions = ['SELECT', 'FROM', 'WHERE', 'JOIN', 'INSERT', 'UPDATE', 'DELETE'].map(keyword => 
-            createCompletionItem(
-              keyword,
-              COMPLETION_ITEM_KIND.Keyword,
-              keyword + ' ',
-              {
-                startLineNumber: position.lineNumber,
-                endLineNumber: position.lineNumber,
-                startColumn: position.column,
-                endColumn: position.column,
-              },
-              'SQL Keyword',
-              undefined,
-              false,
-              'medium'
-            )
-          )
-          
-          return {
-            suggestions: basicSuggestions
-          }
+          console.error('Completion provider critical error:', error);
+          return { suggestions: [] }; // 发生错误时返回空，防止UI崩溃
         }
       }
     })
@@ -469,12 +470,16 @@ const SqlEditor = forwardRef<SqlEditorRef, SqlEditorProps>(({
     }
   }, [resolvedTheme])
 
-  // Cleanup completion provider on unmount
+  // Cleanup completion provider and debounce timer on unmount
   useEffect(() => {
     return () => {
       if (completionProviderRef.current) {
         completionProviderRef.current.dispose()
         completionProviderRef.current = null
+      }
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current)
+        debounceTimerRef.current = null
       }
     }
   }, [])
@@ -482,8 +487,6 @@ const SqlEditor = forwardRef<SqlEditorRef, SqlEditorProps>(({
   // 格式化SQL函数
   const handleFormatSQL = useCallback(() => {
     if (editorRef.current) {
-      console.log('Formatting SQL...')
-
       // 获取当前SQL文本
       const currentValue = editorRef.current.getValue()
 
@@ -651,7 +654,7 @@ const SqlEditor = forwardRef<SqlEditorRef, SqlEditorProps>(({
               将当前SQL内容保存为脚本以便后续重用
             </DialogDescription> */}
           </DialogHeader>
-          
+
           <div className="grid gap-4 py-4 flex-1 overflow-auto">
             <div className="grid grid-cols-4 items-center gap-4">
               <label htmlFor="script-name" className="text-right">
@@ -660,19 +663,19 @@ const SqlEditor = forwardRef<SqlEditorRef, SqlEditorProps>(({
               <Input
                 id="script-name"
                 value={saveDialogScript.name || ''}
-                onChange={(e) => setSaveDialogScript({...saveDialogScript, name: e.target.value})}
+                onChange={(e) => setSaveDialogScript({ ...saveDialogScript, name: e.target.value })}
                 className="col-span-3"
                 placeholder="请输入脚本名称"
               />
             </div>
-            
+
             <div className="grid grid-cols-4 items-center gap-4">
               <label htmlFor="script-group" className="text-right">
                 脚本分组
               </label>
               <Select
                 value={saveDialogScript.groupName || '默认分组'}
-                onValueChange={(value) => setSaveDialogScript({...saveDialogScript, groupName: value})}
+                onValueChange={(value) => setSaveDialogScript({ ...saveDialogScript, groupName: value })}
               >
                 <SelectTrigger className="col-span-3">
                   <SelectValue placeholder="选择分组" />
@@ -686,7 +689,7 @@ const SqlEditor = forwardRef<SqlEditorRef, SqlEditorProps>(({
                 </SelectContent>
               </Select>
             </div>
-            
+
             <div className="grid grid-cols-4 items-start gap-4">
               <label htmlFor="script-description" className="text-right pt-2">
                 脚本描述
@@ -694,13 +697,13 @@ const SqlEditor = forwardRef<SqlEditorRef, SqlEditorProps>(({
               <Textarea
                 id="script-description"
                 value={saveDialogScript.description || ''}
-                onChange={(e) => setSaveDialogScript({...saveDialogScript, description: e.target.value})}
+                onChange={(e) => setSaveDialogScript({ ...saveDialogScript, description: e.target.value })}
                 className="col-span-3"
                 rows={2}
                 placeholder="请输入脚本描述（可选）"
               />
             </div>
-            
+
             <div className="grid grid-cols-4 items-start gap-4">
               <label htmlFor="script-content" className="text-right pt-2">
                 SQL内容
@@ -708,14 +711,14 @@ const SqlEditor = forwardRef<SqlEditorRef, SqlEditorProps>(({
               <Textarea
                 id="script-content"
                 value={saveDialogScript.content || ''}
-                onChange={(e) => setSaveDialogScript({...saveDialogScript, content: e.target.value})}
+                onChange={(e) => setSaveDialogScript({ ...saveDialogScript, content: e.target.value })}
                 className="col-span-3 font-mono text-sm"
                 rows={8}
                 placeholder="SQL脚本内容"
               />
             </div>
           </div>
-          
+
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsSaveDialogOpen(false)}>
               取消
