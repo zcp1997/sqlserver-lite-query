@@ -1397,9 +1397,8 @@ fn generate_execute_template(
                         "int" | "bigint" | "smallint" | "tinyint" => "0",
                         "decimal" | "numeric" | "float" | "real" | "money" | "smallmoney" => "0.0",
                         "bit" => "0",
-                        "varchar" | "nvarchar" | "char" | "nchar" | "text" | "ntext" => "''",
-                        "datetime" | "datetime2" | "smalldatetime" | "date" | "time" => "GETDATE()",
-                        "uniqueidentifier" => "NEWID()",
+                        "varchar" | "nvarchar" | "char" | "nchar" | "text" | "ntext" | "uniqueidentifier" => "''",
+                        "datetime" | "datetime2" | "smalldatetime" | "date" | "time" => "NULL",
                         _ => "NULL",
                     };
                     format!("    {} = {}", param.name, default_value)
