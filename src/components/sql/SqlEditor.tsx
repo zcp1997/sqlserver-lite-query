@@ -33,6 +33,18 @@ import { SaveIcon } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 import { SqlScript } from '@/types/database'
 
+// 配置 Monaco Editor 加载器
+loader.config({
+  paths: {
+    vs: '/monaco/min/vs'
+  },
+  'vs/nls': {
+    availableLanguages: {
+      '*': 'zh-cn'
+    }
+  }
+})
+
 // 本地存储键
 const SCRIPTS_STORAGE_KEY = 'sqlserver-scripts'
 const GROUPS_STORAGE_KEY = 'sqlserver-script-groups'
@@ -50,20 +62,6 @@ const COMPLETION_ITEM_KIND = {
 const COMPLETION_ITEM_INSERT_TEXT_RULE = {
   InsertAsSnippet: 4
 } as const
-
-// 动态加载 monaco-editor
-let monacoModule: any = null
-const loadMonaco = async () => {
-  if (typeof window !== 'undefined' && !monacoModule) {
-    try {
-      monacoModule = await import('monaco-editor')
-      loader.config({ monaco: monacoModule })
-    } catch (error) {
-      console.error('Failed to load monaco-editor:', error)
-    }
-  }
-  return monacoModule
-}
 
 interface SqlEditorProps {
   value: string

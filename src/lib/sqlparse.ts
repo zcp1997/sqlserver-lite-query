@@ -1,18 +1,3 @@
-// 动态导入 monaco-editor，避免 SSR 问题
-let monaco: typeof import('monaco-editor') | null = null
-
-// 确保只在浏览器环境中导入 monaco-editor
-const loadMonaco = async () => {
-  if (typeof window !== 'undefined' && !monaco) {
-    try {
-      monaco = await import('monaco-editor')
-    } catch (error) {
-      console.error('Failed to load monaco-editor:', error)
-    }
-  }
-  return monaco
-}
-
 // Monaco 枚举值的常量替代（避免 SSR 问题）
 const COMPLETION_ITEM_KIND = {
   Field: 5,
