@@ -7,11 +7,9 @@ import { useSession } from '@/components/session/SessionContext'
 import { format } from 'sql-formatter'
 import { v4 as uuidv4 } from 'uuid'
 import {
-  parseTablesAndAliases,
-  analyzeSqlContext,
   generateDynamicSuggestions,
   CreateCompletionItemFunction
-} from '@/lib/sqlparse'
+} from '@/lib/antlr-sqlparse'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
@@ -317,7 +315,7 @@ const SqlEditor = forwardRef<SqlEditorRef, SqlEditorProps>(({
         try {
           // 性能保护：超时控制
           const startTime = Date.now()
-          const maxTime = 3000 // 3秒超时
+          const maxTime = 10000 // 10秒超时
 
           const checkTimeout = () => {
             if (Date.now() - startTime > maxTime) {
@@ -327,8 +325,6 @@ const SqlEditor = forwardRef<SqlEditorRef, SqlEditorProps>(({
 
           // 获取当前最新的 activeSession
           const currentSessionId = activeSession?.id || ""
-
-          console.log('Completion provider using session ID:', currentSessionId)
 
           checkTimeout()
 
@@ -340,45 +336,18 @@ const SqlEditor = forwardRef<SqlEditorRef, SqlEditorProps>(({
             endColumn: word.endColumn,
           }
 
-          // --- 在这里添加下面的日志 ---
-          console.log("Monaco Provider: The final range object is:", JSON.stringify(range));
-          console.log("Monaco Provider: The wordAtCursor object is:", JSON.stringify(word));
-
-          const textBeforeCursor = model.getValueInRange({
-            startLineNumber: 1,
-            startColumn: 1,
-            endLineNumber: position.lineNumber,
-            endColumn: position.column,
-          }).toUpperCase()
-
           // 获取整个文档的文本用于解析表名
           const fullText = model.getValue().toUpperCase()
-
-          console.log('SQL Editor Completion Context:', {
-            sessionId: currentSessionId,
-            textBeforeCursor: textBeforeCursor.slice(-50),
-            fullText: fullText.slice(0, 100),
-            wordAtCursor: word.word,
-            position: { line: position.lineNumber, column: position.column }
-          })
+          
+          // 计算光标偏移量（从文档开始到光标位置的字符数）
+          const cursorOffset = model.getOffsetAt(position)
 
           checkTimeout()
 
-          // 使用 sqlparse 库进行分析
-          const tablesAndAliases = parseTablesAndAliases(fullText)
-          const sqlContext = analyzeSqlContext(textBeforeCursor)
-
-          checkTimeout()
-
-          // 我们的 sqlparse 模块现在足够智能，可以直接调用它
-          // 它会根据上下文自己判断该返回什么建议
-          console.log('Monaco Provider: Calling generateDynamicSuggestions...');
           const dynamicSuggestions = await generateDynamicSuggestions(
             currentSessionId,
-            textBeforeCursor,
             fullText,
-            analyzeSqlContext(textBeforeCursor), // analyzeSqlContext 现在是 generateDynamicSuggestions 的一部分
-            [], // 这个参数已不再需要，传空数组即可
+            cursorOffset,
             createCompletionItem,
             range
           );
