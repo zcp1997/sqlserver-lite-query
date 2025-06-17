@@ -9,7 +9,7 @@ import { v4 as uuidv4 } from 'uuid'
 import {
   generateDynamicSuggestions,
   CreateCompletionItemFunction
-} from '@/lib/antlr-sqlprompt'
+} from '@/lib/antlr-sqlparse'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
