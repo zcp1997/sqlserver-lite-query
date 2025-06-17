@@ -169,7 +169,7 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, isLoading = false, on
     return resultSet.columns.map((columnName, index) => {
       const columnType = resultSet.column_types?.[index] || '';
       const isDateColumn = columnType === 'Datetime' || columnType === 'Datetimen';
-      const isBoolColumn = columnType === 'Bit';
+      const isBoolColumn = columnType === 'Bit' || columnType === 'Bitn';
 
       // 选择合适的单元格渲染器
       let cellRenderer = LightweightCellRenderer;
