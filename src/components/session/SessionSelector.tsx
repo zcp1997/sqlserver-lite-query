@@ -22,7 +22,7 @@ import { Database, Plus, X, RefreshCw } from 'lucide-react'
 import ConnectionList from '@/components/connection/ConnectionList'
 import { ConnectionConfig } from '@/types/database'
 import { useToast } from '@/hooks/use-toast'
-import { SqlCacheManager } from '@/lib/sqlcache-manager'
+import { SqlCacheManager } from '@/lib/sqlparse'
 
 export default function SessionSelector() {
   const {

@@ -205,8 +205,8 @@ export async function search_column_details(session_id: string, table_name: stri
   try {
     const request: ColumnQueryRequest = {
       session_id,
-      table_name: table_name.replace('[', '').replace(']', ''),
-      schema_name: schema_name?.replace('[', '').replace(']', '')
+      table_name,
+      schema_name
     }
     const result = await invoke<ColumnInfo[]>('get_columns_for_table', { request })
 

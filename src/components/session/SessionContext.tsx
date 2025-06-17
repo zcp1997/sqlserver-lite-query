@@ -7,7 +7,7 @@ import { testConnection } from '@/lib/api'
 import { toast } from '@/hooks/use-toast'
 import { useConnections } from '@/hooks/useConnections'
 import { WorkspaceService } from '@/lib/workspace'
-import { SqlCacheManager } from '@/lib/sqlcache-manager'
+import { SqlCacheManager } from '@/lib/sqlparse'
 
 // 定义 context 类型
 interface SessionContextType {
