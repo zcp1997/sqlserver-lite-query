@@ -146,6 +146,7 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, isLoading = false, on
   const [activeTab, setActiveTab] = useState<string>('');
   const [gridApis, setGridApis] = useState<Record<string, GridApi>>({});
   const [quickFilterText, setQuickFilterText] = useState('');
+  const [quickFilterInputs, setQuickFilterInputs] = useState<Record<string, string>>({});
   const [columnSearchOpen, setColumnSearchOpen] = useState(false);
   const [selectedColumn, setSelectedColumn] = useState<string>('');
   const [optimizedTabs, setOptimizedTabs] = useState<Set<string>>(new Set());
@@ -334,14 +335,23 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, isLoading = false, on
     }
   }, [tabsData, toast]);
 
-  const handleQuickFilterChange = useCallback((value: string) => {
-    if (quickFilterTimeoutRef.current) {
-      clearTimeout(quickFilterTimeoutRef.current);
+  const handleQuickFilterChange = useCallback((value: string, tabId: string) => {
+    // 更新对应tab的输入框状态
+    setQuickFilterInputs(prev => ({
+      ...prev,
+      [tabId]: value
+    }));
+    
+    // 只有当前活跃tab的过滤条件才生效
+    if (tabId === activeTab) {
+      if (quickFilterTimeoutRef.current) {
+        clearTimeout(quickFilterTimeoutRef.current);
+      }
+      quickFilterTimeoutRef.current = setTimeout(() => {
+        setQuickFilterText(value);
+      }, 300);
     }
-    quickFilterTimeoutRef.current = setTimeout(() => {
-      setQuickFilterText(value);
-    }, 300);
-  }, []);
+  }, [activeTab]);
 
   const autoSizeColumns = useCallback((tabId: string) => {
     const gridApi = gridApis[tabId];
@@ -475,11 +485,14 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, isLoading = false, on
     }
   }, []);
 
-  // 当切换标签时清空选中的单元格和覆盖层
+  // 当切换标签时清空选中的单元格和覆盖层，并重置快速过滤
   useEffect(() => {
     setSelectedCell(null);
     clearSelectionOverlay();
-  }, [activeTab, clearSelectionOverlay]);
+    // 切换tab时应用对应tab的过滤条件
+    const currentTabFilter = quickFilterInputs[activeTab] || '';
+    setQuickFilterText(currentTabFilter);
+  }, [activeTab, clearSelectionOverlay, quickFilterInputs]);
 
   // 监听滚动事件，滚动时更新覆盖层位置或清除
   useEffect(() => {
@@ -637,7 +650,8 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, isLoading = false, on
                           type="text"
                           placeholder="搜索所有数据..."
                           className="pl-8 h-8 text-sm"
-                          onChange={(e) => handleQuickFilterChange(e.target.value)}
+                          value={quickFilterInputs[tab.id] || ''}
+                          onChange={(e) => handleQuickFilterChange(e.target.value, tab.id)}
                           aria-label="搜索所有数据"
                         />
                       </div>
@@ -762,7 +776,7 @@ const ResultPanel: React.FC<ResultPanelProps> = ({ result, isLoading = false, on
                       columnDefs={tab.columnDefs}
                       defaultColDef={defaultColDef}
                       onGridReady={(params) => onGridReady(params, tab.id)}
-                      quickFilterText={quickFilterText}
+                      quickFilterText={activeTab === tab.id ? quickFilterText : ''}
                       {...gridOptions}
                     />
                   </div>
