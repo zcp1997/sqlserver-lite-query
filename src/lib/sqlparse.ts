@@ -17,27 +17,12 @@ const REGEX_SELECT_PATTERNS = [
   /SELECT\s+TOP\s+\d+\s*$/i,
   /SELECT\s+TOP\s+\d+\s+\w*$/i,
 ]
-const REGEX_AFTER_COMMA = /,\s*$/
-const REGEX_AFTER_COMMA_WITH_WORD = /,\s+\w+\s*$/
-const REGEX_AFTER_COMMA_IN_SELECT = /,\s*(?:\w+\s*)?$/
 const REGEX_DOT_NOTATION = /(\[?([A-Z0-9_]+)\]?)\.\s*$/i
 
 // 修正：将别名匹配前的 \s+ 改为 [ \t]+，防止跨行匹配
 const REGEX_FROM_TABLES = /FROM\s+(?:\[([^\]]+)\]\.\[([^\]]+)\]|([^\s\[.]+)\.([^\s\[.]+)|([^\s\[.]+))(?:[ \t]+(?:AS[ \t]+)?([A-Z0-9_]+))?(?=\s|$|;|,|\)|JOIN|WHERE|ORDER|GROUP|HAVING|UNION|LIMIT)/gi
 const REGEX_JOIN_TABLES = /(?:INNER|LEFT|RIGHT|FULL|CROSS)?\s*JOIN\s+(?:\[([^\]]+)\]\.\[([^\]]+)\]|([^\s\[.]+)\.([^\s\[.]+)|([^\s\[.]+))(?:\s+(?:AS\s+)?([A-Z0-9_]+))?(?=\s|$|;|,|\)|ON|WHERE|ORDER|GROUP|HAVING|UNION|LIMIT)/gi
 const REGEX_UPDATE_TABLES = /UPDATE\s+(?:\[([^\]]+)\]\.\[([^\]]+)\]|([^\s\[.]+)\.([^\s\[.]+)|([^\s\[.]+))(?:\s+(?:AS\s+)?([A-Z0-9_]+))?(?=\s|$|;|,|\)|SET|WHERE|FROM)/gi
-
-// 动态建议生成相关
-const REGEX_TABLE_KEYWORD_MATCH = /.*\b(FROM|JOIN|UPDATE)\s*/i
-const REGEX_DIRECTLY_AFTER_TABLE_KEYWORD = /\b(?:FROM|(?:INNER|LEFT|RIGHT|FULL|CROSS\s+)?JOIN|UPDATE)\s*(?:[A-Z0-9_\[\].]*)?$/i
-const REGEX_HAS_COMPLETE_TABLE_NAME = /\b(?:FROM|(?:INNER|LEFT|RIGHT|FULL|CROSS\s+)?JOIN|UPDATE)\s+(?:\[[^\]]+\]\.\[[^\]]+\]|\w+\.\w+|\[[^\]]+\]|\w+)\s+\w/i
-const REGEX_WHERE_CLAUSE = /WHERE\s+(?:.*?\s+(?:AND|OR)\s+)?$/i
-const REGEX_UPDATE_SET = /UPDATE\s+(?:\[([^\]]+)\]?\.)??\[?([^\]]+)\]?\s+SET\s+(?:[\w.]+\s*=\s*[^,]+(?:,\s*)?)*(\w*)$/i
-const REGEX_INSERT_INTO = /INSERT\s+INTO\s+(?:\[?([^\]]+)\]?\.)??\[?([^\]]+)\]?\s*\(\s*([^)]*)$/i
-const REGEX_UPDATE_TABLE = /UPDATE\s+(\b[A-Z0-9_.]+)\b\s*$/i
-const REGEX_INSERT_TABLE = /INSERT\s+INTO\s+(\b[A-Z0-9_.]+)\b\s*$/i
-const REGEX_COMPLETE_DOT_NOTATION = /\w+\.\w+/
-const REGEX_FALLBACK_FROM_MATCH = /FROM\s+(?:\[?([^\]]+)\]?\.)??\[?([^\]]+)\]?/i
 
 // 文本分块相关
 const REGEX_SQL_SEPARATOR = /\n\s*\n/g
@@ -49,9 +34,6 @@ const REGEX_EXEC_WORD_BOUNDARY = /\s/
 import { debounce } from 'lodash'
 import { search_column_details, search_table_names, search_procedure_suggestionitems } from '@/lib/api'
 import { persistentCache } from '@/lib/persistentCache'
-import { useToast } from '@/hooks/use-toast'
-
-const { toast } = useToast();
 
 // 缓存机制
 interface CacheEntry {
@@ -952,13 +934,12 @@ export async function getTableSuggestions(
   return suggestions
 }
 
-// 生成动态建议 - 暴力加载所有表的列
+// 生成动态建议 - 完善版：根据测试用例改进所有SQL上下文检测
 export async function generateDynamicSuggestions(
   sessionId: string,
   textBeforeCursor: string,
   fullText: string,
   sqlContext: SqlContext,
-  tablesAndAliases: ParsedTable[],
   createCompletionItem: CreateCompletionItemFunction,
   range: any // 使用 any 替代具体的 monaco 类型
 ): Promise<any[]> {
@@ -997,41 +978,34 @@ export async function generateDynamicSuggestions(
 
     checkTimeout()
 
-    // 找到最后一个EXEC关键字，支持多个EXEC语句的情况
+    // 预处理：提取用于上下文分析的关键信息
     const upperTextBeforeCursor = textBeforeCursor.toUpperCase()
-    const lastExecIndex = upperTextBeforeCursor.lastIndexOf('EXEC')
+    const trimmedText = textBeforeCursor.trim()
 
+    // 1. EXEC 语句处理 - 存储过程建议
+    const lastExecIndex = upperTextBeforeCursor.lastIndexOf('EXEC')
     if (lastExecIndex !== -1) {
       // 确保是一个完整的EXEC关键字（前后是边界）
       const beforeExec = lastExecIndex > 0 ? upperTextBeforeCursor.charAt(lastExecIndex - 1) : ' '
       const afterExecKeyword = lastExecIndex + 4 < upperTextBeforeCursor.length ?
         upperTextBeforeCursor.charAt(lastExecIndex + 4) : ' '
 
-      const isWordBoundary = REGEX_EXEC_WORD_BOUNDARY.test(beforeExec) && (REGEX_EXEC_WORD_BOUNDARY.test(afterExecKeyword) || lastExecIndex + 4 === upperTextBeforeCursor.length)
+      const isWordBoundary = REGEX_EXEC_WORD_BOUNDARY.test(beforeExec) && 
+        (REGEX_EXEC_WORD_BOUNDARY.test(afterExecKeyword) || lastExecIndex + 4 === upperTextBeforeCursor.length)
 
       if (isWordBoundary) {
         const afterExec = textBeforeCursor.substring(lastExecIndex + 4).trim()
-
-        console.log('检测到 EXEC 关键字，提供存储过程建议', {
-          lastExecIndex,
-          afterExec,
-          textEnd: textBeforeCursor.slice(-30)
-        })
-        const keywordAfterExec = afterExec
-
+        console.log('检测到 EXEC 关键字，提供存储过程建议')
+        
         try {
-          const procedureSuggestions = await getProcedureSuggestions(sessionId, keywordAfterExec)
+          const procedureSuggestions = await getProcedureSuggestions(sessionId, afterExec)
           console.log(`获取到 ${procedureSuggestions.length} 个存储过程建议`)
 
-          // 生成存储过程建议项
           procedureSuggestions.forEach(proc => {
             if (proc && proc.name && createCompletionItem && range) {
               const insertText = proc.execute_template
-
-              // 构建详细的documentation（兼容持久化缓存数据）
               let documentation = `存储过程: ${proc.full_name || proc.name}\n`
 
-              // 检查是否有parameters字段（API数据有，持久化缓存数据没有）
               if (proc.parameters && Array.isArray(proc.parameters)) {
                 if (proc.parameters.length > 0) {
                   documentation += `\n参数:\n`
@@ -1044,7 +1018,6 @@ export async function generateDynamicSuggestions(
                   documentation += `\n无参数`
                 }
               } else {
-                // 持久化缓存数据，参数信息已包含在execute_template中
                 documentation += `\n参数信息包含在执行模板中`
               }
 
@@ -1053,95 +1026,43 @@ export async function generateDynamicSuggestions(
                 COMPLETION_ITEM_KIND.Function,
                 insertText,
                 range,
-                `${proc.schema_name}`, // detail显示schema
+                `${proc.schema_name}`,
                 documentation,
-                true, // 这是一个snippet
+                true,
                 'high'
               ))
             }
           })
 
-          // 如果找到存储过程建议，直接返回，不继续其他建议逻辑
           if (dynamicSuggestions.length > 0) {
             console.log(`EXEC: 返回 ${dynamicSuggestions.length} 个存储过程建议`)
             return dynamicSuggestions
           }
         } catch (error) {
           console.error('获取存储过程建议失败:', error)
-          // 继续执行其他建议逻辑
         }
       }
     }
 
-    // 1. 表建议（在 FROM, JOIN, UPDATE 后）
-
-    // 检测是否在UNION后 - 特殊处理，不返回表建议
-    const isAfterUnion = REGEX_AFTER_UNION.test(textBeforeCursor)
-    if (!isAfterUnion) {
-      // 重要修复：如果在SELECT语句的逗号后，优先列建议而不是表建议
-      const isAfterCommaInSelectContext = sqlContext.isInSelectStatement && (
-        REGEX_AFTER_COMMA.test(textBeforeCursor) ||
-        REGEX_AFTER_COMMA_WITH_WORD.test(textBeforeCursor)
-      )
-
-      if (/\b(FROM|JOIN|UPDATE)\s*$/.test(upperTextBeforeCursor)) {
-        // 如果文本以 FROM/JOIN/UPDATE 结尾（允许没有末尾空格）
-        // 直接提供表建议
-        const tableSuggestions = await getTableSuggestions(sessionId, createCompletionItem, range);
-        return tableSuggestions;
-      }
-
-      // 更精确的表建议检测：只在真正需要表名的位置触发，且不在逗号后
-      // 匹配：FROM table_name, JOIN table_name, UPDATE table_name 等模式
-      const isDirectlyAfterTableKeyword = REGEX_DIRECTLY_AFTER_TABLE_KEYWORD.test(textBeforeCursor)
-
-      if (isDirectlyAfterTableKeyword && !isAfterCommaInSelectContext) {
-        // 检查是否已经有完整的表名（排除已完成的表名输入）
-        const hasCompleteTableName = REGEX_HAS_COMPLETE_TABLE_NAME.test(textBeforeCursor)
-
-        if (!hasCompleteTableName) {
-          console.log('触发表建议 (精确匹配):', {
-            textEnd: textBeforeCursor.slice(-50),
-            isDirectlyAfterTableKeyword,
-            hasCompleteTableName,
-            isAfterCommaInSelectContext
-          })
-          const tableSuggestions = await getTableSuggestions(sessionId, createCompletionItem, range)
-          dynamicSuggestions.push(...tableSuggestions)
-          return dynamicSuggestions // 只返回表建议
-        }
-      }
+    // 2. 表建议检测 - 基于测试用例完善
+    const isTableContext = detectTableContext(textBeforeCursor, sqlContext)
+    if (isTableContext.needsTable) {
+      console.log('检测到表上下文:', isTableContext.context)
+      const tableSuggestions = await getTableSuggestions(sessionId, createCompletionItem, range)
+      return tableSuggestions
     }
 
-    // 1.5. UNION后的SELECT建议 - 添加SELECT关键字建议
-    if (isAfterUnion) {
-      console.log('检测到UNION后，添加SELECT建议')
-      dynamicSuggestions.push(createCompletionItem(
-        'SELECT',
-        COMPLETION_ITEM_KIND.Keyword,
-        'SELECT ',
-        range,
-        'SQL SELECT keyword',
-        'Start a new SELECT statement after UNION',
-        false,
-        'high'
-      ))
-      // 不返回，继续处理其他可能的建议
-    }
-
-    checkTimeout()
-
-    // 2. 点号后的列建议 - 只显示该表的列
+    // 3. 点号后的列建议
     if (sqlContext.isDotNotation && sqlContext.dotTableOrAlias) {
-      console.log(`点号表示法检测，只加载表 ${sqlContext.dotTableOrAlias} 的列`)
-
+      console.log(`点号表示法检测，加载表 ${sqlContext.dotTableOrAlias} 的列`)
+      
       const matchedTable = allTables.find(t =>
         t.alias === sqlContext.dotTableOrAlias || t.name === sqlContext.dotTableOrAlias
       )
 
       if (matchedTable) {
-        console.log(`点号匹配到表:`, matchedTable)
-        const tableDisplayName = matchedTable.schema ? `[${matchedTable.schema}].[${matchedTable.name}]` : matchedTable.name
+        const tableDisplayName = matchedTable.schema ? 
+          `[${matchedTable.schema}].[${matchedTable.name}]` : matchedTable.name
         const columnSuggestions = await getColumnSuggestions(
           sessionId,
           matchedTable.name,
@@ -1153,7 +1074,6 @@ export async function generateDynamicSuggestions(
         )
         return columnSuggestions
       } else {
-        console.log(`点号未匹配到表，直接查询:`, sqlContext.dotTableOrAlias)
         const columnSuggestions = await getColumnSuggestions(
           sessionId,
           sqlContext.dotTableOrAlias,
@@ -1167,204 +1087,532 @@ export async function generateDynamicSuggestions(
       }
     }
 
-    checkTimeout()
-
-    // 3. SELECT 子句中的列建议 - 暴力加载所有表的列
-    if (sqlContext.isAfterSelectOrComma) {
-      console.log('✅ [1/4] 进入 SELECT/Comma 子句处理分支。')
-
-      // 添加 * 选项
-      dynamicSuggestions.push(createCompletionItem(
-        '*',
-        COMPLETION_ITEM_KIND.Field,
-        '* ',
-        range,
-        'Select all columns',
-        'Select all columns from all tables',
-        false,
-        'high'
-      ))
-
-      if (allTables.length > 0) {// --- 新增日志 ---
-        console.log(`[2/4] 检测到 ${allTables.length} 个表，准备循环获取列。`, allTables)
-
-        // 遍历所有表，加载每个表的列建议
-        for (let i = 0; i < allTables.length; i++) {
-          checkTimeout() // 每个表处理前检查超时
-
-          const table = allTables[i]
-          const tableDisplayName = table.schema ? `[${table.schema}].[${table.name}]` : table.name
-          console.log(`[3/4] 正在为表: ${tableDisplayName} 调用 getColumnSuggestions...`)
-
-          const columnSuggestions = await getColumnSuggestions(
-            sessionId,
-            table.name,
-            'SELECT clause',
-            table.schema,
-            createCompletionItem,
-            range,
-            tableDisplayName
-          )
-          // --- 新增日志 ---
-          console.log(`[4/4] 表 ${tableDisplayName} 返回了 ${columnSuggestions.length} 个建议。`)
-          dynamicSuggestions.push(...columnSuggestions)
-        }
-
-        console.log(`SELECT子句: 总共加载了 ${dynamicSuggestions.length - 1} 个列建议 (除去*)`)
-      } else {
-        // --- 新增日志 ---
-        console.log('❌ 未检测到任何表，尝试 Fallback 逻辑。')
-        const partialFromMatch = textBeforeCursor.match(REGEX_FALLBACK_FROM_MATCH)
-        if (partialFromMatch) {
-          const tableName = partialFromMatch[2] || partialFromMatch[1]
-          const schemaName = partialFromMatch[1] && partialFromMatch[2] ? partialFromMatch[1] : undefined
-          const tableDisplayName = schemaName ? `[${schemaName}].[${tableName}]` : tableName
-          console.log(`Fallback解析到表: ${tableDisplayName}`)
-          const columnSuggestions = await getColumnSuggestions(
-            sessionId,
-            tableName,
-            'SELECT clause (fallback)',
-            schemaName,
-            createCompletionItem,
-            range,
-            tableDisplayName
-          )
-          dynamicSuggestions.push(...columnSuggestions)
-        }
-      }
-
-      return dynamicSuggestions
-    }
-
-    checkTimeout()
-
-    // 4. WHERE 子句 - 暴力加载所有表的列
-    const whereClauseMatch = textBeforeCursor.match(REGEX_WHERE_CLAUSE)
-    if (whereClauseMatch && allTables.length > 0) {
-      console.log('WHERE子句检测，暴力加载所有表的列')
-
-      for (let i = 0; i < allTables.length; i++) {
-        checkTimeout() // 每个表处理前检查超时
-
-        const table = allTables[i]
-        const tableDisplayName = table.schema ? `[${table.schema}].[${table.name}]` : table.name
-        console.log(`加载表 ${tableDisplayName} 的列建议 (WHERE) (${i + 1}/${allTables.length})`)
-
-        const columnSuggestions = await getColumnSuggestions(
-          sessionId,
-          table.name,
-          'WHERE clause',
-          table.schema,
-          createCompletionItem,
-          range,
-          tableDisplayName
-        )
-        dynamicSuggestions.push(...columnSuggestions)
-      }
-
-      return dynamicSuggestions
-    }
-
-    // 5. UPDATE SET 子句 - 只返回被更新表的列
-    const updateSetMatch = textBeforeCursor.match(REGEX_UPDATE_SET)
-    if (updateSetMatch) {
-      console.log('UPDATE SET子句检测，只加载被更新表的列')
-      const tableName = updateSetMatch[2] || updateSetMatch[1]
-      const schemaName = updateSetMatch[1] && updateSetMatch[2] ? updateSetMatch[1] : undefined
-      const tableDisplayName = schemaName ? `[${schemaName}].[${tableName}]` : tableName
-      const columnSuggestions = await getColumnSuggestions(
+    // 4. 列建议检测 - 基于测试用例完善
+    const columnContext = detectColumnContext(textBeforeCursor, sqlContext)
+    if (columnContext.needsColumns) {
+      console.log('检测到列上下文:', columnContext.context)
+      return await handleColumnSuggestions(
         sessionId,
-        tableName,
-        'UPDATE SET',
-        schemaName,
+        columnContext,
+        allTables,
         createCompletionItem,
-        range,
-        tableDisplayName
+        range
       )
-      // 为每个列添加 " = " 后缀
-      columnSuggestions.forEach(suggestion => {
-        suggestion.insertText = suggestion.label + ' = '
-      })
-      return columnSuggestions
     }
 
-    // 6. INSERT INTO 子句 - 只返回插入表的列
-    checkTimeout()
-    const insertColumnsMatch = textBeforeCursor.match(REGEX_INSERT_INTO)
-    if (insertColumnsMatch) {
-      console.log('INSERT INTO子句检测，只加载插入表的列')
-      const tableName = insertColumnsMatch[2] || insertColumnsMatch[1]
-      const schemaName = insertColumnsMatch[1] && insertColumnsMatch[2] ? insertColumnsMatch[1] : undefined
-      const existingColsText = insertColumnsMatch[3]
-
-      if (!existingColsText.includes(')')) {
-        const tableDisplayName = schemaName ? `[${schemaName}].[${tableName}]` : tableName
-        const columnSuggestions = await getColumnSuggestions(
-          sessionId,
-          tableName,
-          'INSERT INTO',
-          schemaName,
-          createCompletionItem,
-          range,
-          tableDisplayName
-        )
-        return columnSuggestions
-      }
-    }
-
-    // 7. UPDATE 后的 SET 建议
-    checkTimeout()
-    const updateTableMatch = textBeforeCursor.match(REGEX_UPDATE_TABLE)
-    if (updateTableMatch) {
-      dynamicSuggestions.push(createCompletionItem(
-        'SET',
-        COMPLETION_ITEM_KIND.Keyword,
-        'SET ',
-        range,
-        'SQL SET keyword',
-        undefined,
-        false,
-        'high'
-      ))
-      return dynamicSuggestions
-    }
-
-    // 8. INSERT INTO 后的建议
-    checkTimeout()
-    const insertTableMatch = textBeforeCursor.match(REGEX_INSERT_TABLE)
-    if (insertTableMatch) {
-      dynamicSuggestions.push(
-        createCompletionItem(
-          '(',
-          COMPLETION_ITEM_KIND.Text,
-          '(',
-          range,
-          'Specify columns',
-          undefined,
-          false,
-          'high'
-        ),
-        createCompletionItem(
-          'VALUES',
+    // 5. 特殊关键字建议
+    const keywordSuggestions = detectKeywordContext(textBeforeCursor)
+    if (keywordSuggestions.length > 0) {
+      keywordSuggestions.forEach(keyword => {
+        dynamicSuggestions.push(createCompletionItem(
+          keyword.label,
           COMPLETION_ITEM_KIND.Keyword,
-          'VALUES ',
+          keyword.insertText,
           range,
-          'Specify values',
-          undefined,
+          keyword.detail,
+          keyword.documentation,
           false,
           'high'
-        )
-      )
+        ))
+      })
       return dynamicSuggestions
     }
 
     console.log(`动态建议生成完成, 总数: ${dynamicSuggestions.length}`)
-
     return dynamicSuggestions
+
   } catch (error) {
     console.error("Error generating dynamic suggestions:", error)
     return []
   }
+}
+
+// 新增：检测表上下文的函数
+function detectTableContext(textBeforeCursor: string, sqlContext: SqlContext): {
+  needsTable: boolean,
+  context: string
+} {
+  
+  // 1. FROM 子句 - 各种情况
+  if (
+    /\bFROM\s*$/i.test(textBeforeCursor) ||                    // SELECT * FROM |
+    /\bFROM\s+[A-Z0-9_]*$/i.test(textBeforeCursor) ||         // SELECT * FROM us|
+    /\bFROM\s+\[[^\]]*\]?\s*$/i.test(textBeforeCursor) ||     // SELECT * FROM [|
+    /\bFROM\s+\[[^\]]+\]\.\[?[^\]]*\]?\s*$/i.test(textBeforeCursor) // SELECT * FROM [dbo].[|
+  ) {
+    return { needsTable: true, context: 'FROM clause' }
+  }
+
+  // 2. JOIN 语句 - 各种类型的JOIN
+  if (
+    /\b(?:INNER\s+|LEFT\s+|RIGHT\s+|FULL\s+|CROSS\s+)?JOIN\s*$/i.test(textBeforeCursor) ||
+    /\b(?:INNER\s+|LEFT\s+|RIGHT\s+|FULL\s+|CROSS\s+)?JOIN\s+[A-Z0-9_]*$/i.test(textBeforeCursor) ||
+    /\b(?:INNER\s+|LEFT\s+|RIGHT\s+|FULL\s+|CROSS\s+)?JOIN\s+\[[^\]]*\]?\s*$/i.test(textBeforeCursor)
+  ) {
+    return { needsTable: true, context: 'JOIN clause' }
+  }
+
+  // 3. UPDATE 语句
+  if (
+    /\bUPDATE\s*$/i.test(textBeforeCursor) ||
+    /\bUPDATE\s+[A-Z0-9_]*$/i.test(textBeforeCursor) ||
+    /\bUPDATE\s+\[[^\]]*\]?\s*$/i.test(textBeforeCursor)
+  ) {
+    return { needsTable: true, context: 'UPDATE statement' }
+  }
+
+  // 4. INSERT INTO 语句
+  if (
+    /\bINSERT\s+INTO\s*$/i.test(textBeforeCursor) ||
+    /\bINSERT\s+INTO\s+[A-Z0-9_]*$/i.test(textBeforeCursor) ||
+    /\bINSERT\s+INTO\s+\[[^\]]*\]?\s*$/i.test(textBeforeCursor)
+  ) {
+    return { needsTable: true, context: 'INSERT INTO statement' }
+  }
+
+  // 5. DELETE FROM 语句
+  if (
+    /\bDELETE\s+FROM\s*$/i.test(textBeforeCursor) ||
+    /\bDELETE\s+FROM\s+[A-Z0-9_]*$/i.test(textBeforeCursor) ||
+    /\bDELETE\s+FROM\s+\[[^\]]*\]?\s*$/i.test(textBeforeCursor)
+  ) {
+    return { needsTable: true, context: 'DELETE FROM statement' }
+  }
+
+  // 6. 多表情况：逗号后
+  if (
+    /\bFROM\s+[A-Z0-9_\[\].]+\s*,\s*$/i.test(textBeforeCursor) ||
+    /\bFROM\s+[A-Z0-9_\[\].]+\s+[A-Z0-9_]+\s*,\s*$/i.test(textBeforeCursor) // 带别名
+  ) {
+    return { needsTable: true, context: 'Multiple tables' }
+  }
+
+  // 7. 子查询中的FROM
+  if (/\(\s*SELECT\s+[^)]*\s+FROM\s*$/i.test(textBeforeCursor)) {
+    return { needsTable: true, context: 'Subquery FROM' }
+  }
+
+  // 8. CTE (Common Table Expression) 中的FROM
+  if (/\bWITH\s+\w+\s+AS\s*\(\s*SELECT\s+[^)]*\s+FROM\s*$/i.test(textBeforeCursor)) {
+    return { needsTable: true, context: 'CTE FROM' }
+  }
+
+  // 9. EXISTS 子查询中的FROM
+  if (/\bEXISTS\s*\(\s*SELECT\s+[^)]*\s+FROM\s*$/i.test(textBeforeCursor)) {
+    return { needsTable: true, context: 'EXISTS subquery FROM' }
+  }
+
+  // 10. IN 子查询中的FROM
+  if (/\bIN\s*\(\s*SELECT\s+[^)]*\s+FROM\s*$/i.test(textBeforeCursor)) {
+    return { needsTable: true, context: 'IN subquery FROM' }
+  }
+
+  // 11. UPDATE 语句中的FROM (SQL Server特性)
+  if (/\bUPDATE\s+\w+\s+SET\s+[^=]+=\s*[^,\s]+(?:\s*,\s*[^=]+=\s*[^,\s]+)*\s+FROM\s*$/i.test(textBeforeCursor)) {
+    return { needsTable: true, context: 'UPDATE FROM clause' }
+  }
+
+  // 12. DELETE 语句中的JOIN
+  if (/\bDELETE\s+\w+\s+FROM\s+\w+\s+(?:INNER\s+|LEFT\s+|RIGHT\s+)?JOIN\s*$/i.test(textBeforeCursor)) {
+    return { needsTable: true, context: 'DELETE JOIN clause' }
+  }
+
+  return { needsTable: false, context: '' }
+}
+
+// 新增：检测列上下文的函数
+function detectColumnContext(
+  textBeforeCursor: string, 
+  sqlContext: SqlContext, 
+): {
+  needsColumns: boolean,
+  context: string,
+  specificTable?: string,
+  schemaName?: string,
+  addSuffix?: string
+} {
+
+  // 1. SELECT 语句中的列 - 各种情况
+  if (
+    /\bSELECT\s*$/i.test(textBeforeCursor) ||                    // SELECT |
+    /\bSELECT\s+[A-Z0-9_]*$/i.test(textBeforeCursor) ||         // SELECT na|
+    /\bSELECT\s+TOP\s+\d+\s*$/i.test(textBeforeCursor) ||       // SELECT TOP 10 |
+    /\bSELECT\s+DISTINCT\s*$/i.test(textBeforeCursor) ||        // SELECT DISTINCT |
+    /\bSELECT\s+DISTINCT\s+[A-Z0-9_]*$/i.test(textBeforeCursor) // SELECT DISTINCT na|
+  ) {
+    return { needsColumns: true, context: 'SELECT clause' }
+  }
+
+  // 2. SELECT 中的逗号后
+  if (sqlContext.isInSelectStatement && (
+    /,\s*$/i.test(textBeforeCursor) ||                          // SELECT name,|
+    /,\s+[A-Z0-9_]*$/i.test(textBeforeCursor)                   // SELECT name, a|
+  )) {
+    return { needsColumns: true, context: 'SELECT comma' }
+  }
+
+  // 3. WHERE 子句
+  if (
+    /\bWHERE\s*$/i.test(textBeforeCursor) ||                    // WHERE |
+    /\bWHERE\s+[A-Z0-9_]*$/i.test(textBeforeCursor) ||         // WHERE na|
+    /\bWHERE\s+.*?\s+(?:AND|OR)\s*$/i.test(textBeforeCursor) || // WHERE x = 1 AND |
+    /\bWHERE\s+.*?\s+(?:AND|OR)\s+[A-Z0-9_]*$/i.test(textBeforeCursor) // WHERE x = 1 AND na|
+  ) {
+    return { needsColumns: true, context: 'WHERE clause' }
+  }
+
+  // 4. ORDER BY 子句
+  if (
+    /\bORDER\s+BY\s*$/i.test(textBeforeCursor) ||               // ORDER BY |
+    /\bORDER\s+BY\s+[A-Z0-9_]*$/i.test(textBeforeCursor) ||    // ORDER BY na|
+    /\bORDER\s+BY\s+[^,]+,\s*$/i.test(textBeforeCursor) ||     // ORDER BY name, |
+    /\bORDER\s+BY\s+[^,]+,\s+[A-Z0-9_]*$/i.test(textBeforeCursor) // ORDER BY name, a|
+  ) {
+    return { needsColumns: true, context: 'ORDER BY clause' }
+  }
+
+  // 5. GROUP BY 子句
+  if (
+    /\bGROUP\s+BY\s*$/i.test(textBeforeCursor) ||               // GROUP BY |
+    /\bGROUP\s+BY\s+[A-Z0-9_]*$/i.test(textBeforeCursor) ||    // GROUP BY na|
+    /\bGROUP\s+BY\s+[^,]+,\s*$/i.test(textBeforeCursor) ||     // GROUP BY name, |
+    /\bGROUP\s+BY\s+[^,]+,\s+[A-Z0-9_]*$/i.test(textBeforeCursor) // GROUP BY name, a|
+  ) {
+    return { needsColumns: true, context: 'GROUP BY clause' }
+  }
+
+  // 6. HAVING 子句
+  if (
+    /\bHAVING\s*$/i.test(textBeforeCursor) ||                   // HAVING |
+    /\bHAVING\s+[A-Z0-9_]*$/i.test(textBeforeCursor) ||        // HAVING CO|
+    /\bHAVING\s+.*?\s+(?:AND|OR)\s*$/i.test(textBeforeCursor) || // HAVING COUNT(*) > 1 AND |
+    /\bHAVING\s+.*?\s+(?:AND|OR)\s+[A-Z0-9_]*$/i.test(textBeforeCursor)
+  ) {
+    return { needsColumns: true, context: 'HAVING clause' }
+  }
+
+  // 7. INSERT INTO 列列表
+  const insertMatch = textBeforeCursor.match(/INSERT\s+INTO\s+(?:\[?([^\]]+)\]?\.)??\[?([^\]]+)\]?\s*\(\s*([^)]*)$/i)
+  if (insertMatch) {
+    const schemaName = insertMatch[1]
+    const tableName = insertMatch[2]
+    const existingCols = insertMatch[3]
+    
+    if (!existingCols.includes(')')) {
+      return { 
+        needsColumns: true, 
+        context: 'INSERT columns',
+        specificTable: tableName,
+        schemaName: schemaName
+      }
+    }
+  }
+
+  // 8. UPDATE SET 子句
+  const updateSetMatch = textBeforeCursor.match(/UPDATE\s+(?:\[?([^\]]+)\]?\.)??\[?([^\]]+)\]?\s+SET\s+(?:[\w.]+\s*=\s*[^,]+(?:,\s*)?)*(\w*)$/i)
+  if (updateSetMatch) {
+    const schemaName = updateSetMatch[1]
+    const tableName = updateSetMatch[2]
+    
+    return { 
+      needsColumns: true, 
+      context: 'UPDATE SET',
+      specificTable: tableName,
+      schemaName: schemaName,
+      addSuffix: ' = '
+    }
+  }
+
+  // 9. 窗口函数中的PARTITION BY
+  if (
+    /\bPARTITION\s+BY\s*$/i.test(textBeforeCursor) ||
+    /\bPARTITION\s+BY\s+[A-Z0-9_]*$/i.test(textBeforeCursor) ||
+    /\bPARTITION\s+BY\s+[^,]+,\s*$/i.test(textBeforeCursor)
+  ) {
+    return { needsColumns: true, context: 'PARTITION BY clause' }
+  }
+
+  // 10. CTE (Common Table Expression) 中的列
+  if (
+    /\bWITH\s+\w+\s+AS\s*\(\s*SELECT\s*$/i.test(textBeforeCursor) ||
+    /\bWITH\s+\w+\s+AS\s*\(\s*SELECT\s+[A-Z0-9_]*$/i.test(textBeforeCursor)
+  ) {
+    return { needsColumns: true, context: 'CTE SELECT clause' }
+  }
+
+  // 11. CASE WHEN 表达式中的列
+  if (
+    /\bCASE\s+WHEN\s*$/i.test(textBeforeCursor) ||
+    /\bCASE\s+WHEN\s+[A-Z0-9_]*$/i.test(textBeforeCursor) ||
+    /\bWHEN\s*$/i.test(textBeforeCursor) ||
+    /\bWHEN\s+[A-Z0-9_]*$/i.test(textBeforeCursor)
+  ) {
+    return { needsColumns: true, context: 'CASE WHEN clause' }
+  }
+
+  // 12. EXISTS/IN 子查询中的列
+  if (
+    /\b(?:EXISTS|IN)\s*\(\s*SELECT\s*$/i.test(textBeforeCursor) ||
+    /\b(?:EXISTS|IN)\s*\(\s*SELECT\s+[A-Z0-9_]*$/i.test(textBeforeCursor)
+  ) {
+    return { needsColumns: true, context: 'Subquery SELECT clause' }
+  }
+
+  // 13. JOIN ON 条件中的列
+  if (
+    /\bJOIN\s+[^\s]+\s+(?:AS\s+\w+\s+)?ON\s*$/i.test(textBeforeCursor) ||
+    /\bJOIN\s+[^\s]+\s+(?:AS\s+\w+\s+)?ON\s+[A-Z0-9_.]*$/i.test(textBeforeCursor) ||
+    /\bON\s+.*?\s+(?:AND|OR)\s*$/i.test(textBeforeCursor) ||
+    /\bON\s+.*?\s+(?:AND|OR)\s+[A-Z0-9_.]*$/i.test(textBeforeCursor)
+  ) {
+    return { needsColumns: true, context: 'JOIN ON clause' }
+  }
+
+  return { needsColumns: false, context: '' }
+}
+
+// 新增：处理列建议的统一函数
+async function handleColumnSuggestions(
+  sessionId: string,
+  columnContext: any,
+  allTables: ParsedTable[],
+  createCompletionItem: CreateCompletionItemFunction,
+  range: any
+): Promise<any[]> {
+  const suggestions: any[] = []
+
+  // 对于SELECT子句，添加 * 选项
+  if (columnContext.context.includes('SELECT')) {
+    suggestions.push(createCompletionItem(
+      '*',
+      COMPLETION_ITEM_KIND.Field,
+      '* ',
+      range,
+      'Select all columns',
+      'Select all columns from all tables',
+      false,
+      'high'
+    ))
+  }
+
+  // 如果指定了特定表（如INSERT、UPDATE），只处理该表
+  if (columnContext.specificTable) {
+    const tableDisplayName = columnContext.schemaName ? 
+      `[${columnContext.schemaName}].[${columnContext.specificTable}]` : 
+      columnContext.specificTable
+
+    const columnSuggestions = await getColumnSuggestions(
+      sessionId,
+      columnContext.specificTable,
+      columnContext.context,
+      columnContext.schemaName,
+      createCompletionItem,
+      range,
+      tableDisplayName
+    )
+
+    // 如果需要添加后缀（如UPDATE SET的 = ）
+    if (columnContext.addSuffix) {
+      columnSuggestions.forEach(suggestion => {
+        suggestion.insertText = suggestion.label + columnContext.addSuffix
+      })
+    }
+
+    return [...suggestions, ...columnSuggestions]
+  }
+
+  // 处理所有表的列
+  if (allTables.length > 0) {
+    console.log(`为 ${columnContext.context} 加载所有表的列建议`)
+    
+    for (const table of allTables) {
+      const tableDisplayName = table.schema ? 
+        `[${table.schema}].[${table.name}]` : table.name
+      
+      const columnSuggestions = await getColumnSuggestions(
+        sessionId,
+        table.name,
+        columnContext.context,
+        table.schema,
+        createCompletionItem,
+        range,
+        tableDisplayName
+      )
+      suggestions.push(...columnSuggestions)
+    }
+  } else {
+    // Fallback：如果没有解析到表，跳过列建议
+    console.log('Fallback: 无法解析到表，跳过列建议')
+  }
+
+  return suggestions
+}
+
+// 新增：检测关键字上下文
+function detectKeywordContext(textBeforeCursor: string): Array<{
+  label: string,
+  insertText: string,
+  detail: string,
+  documentation?: string
+}> {
+  const keywords: Array<{
+    label: string,
+    insertText: string,
+    detail: string,
+    documentation?: string
+  }> = []
+
+  const upperText = textBeforeCursor.toUpperCase()
+
+  // UNION 后的 SELECT
+  if (REGEX_AFTER_UNION.test(textBeforeCursor)) {
+    keywords.push({
+      label: 'SELECT',
+      insertText: 'SELECT ',
+      detail: 'SQL SELECT keyword',
+      documentation: 'Start a new SELECT statement after UNION'
+    })
+  }
+
+  // UPDATE 后的 SET
+  if (/\bUPDATE\s+(?:\[?[^\]]+\]?\.)??\[?[^\]]+\]?\s*$/i.test(textBeforeCursor)) {
+    keywords.push({
+      label: 'SET',
+      insertText: 'SET ',
+      detail: 'SQL SET keyword',
+      documentation: 'Start SET clause for UPDATE statement'
+    })
+  }
+
+  // INSERT INTO 后的关键字
+  if (/\bINSERT\s+INTO\s+(?:\[?[^\]]+\]?\.)??\[?[^\]]+\]?\s*$/i.test(textBeforeCursor)) {
+    keywords.push(
+      {
+        label: '(',
+        insertText: '(',
+        detail: 'Specify columns',
+        documentation: 'Start column list for INSERT statement'
+      },
+      {
+        label: 'VALUES',
+        insertText: 'VALUES ',
+        detail: 'Specify values',
+        documentation: 'Start VALUES clause for INSERT statement'
+      }
+    )
+  }
+
+  // SELECT 后的关键字
+  if (/\bSELECT\s*$/i.test(textBeforeCursor)) {
+    keywords.push(
+      {
+        label: 'TOP',
+        insertText: 'TOP ',
+        detail: 'Limit results',
+        documentation: 'Specify number of rows to return'
+      },
+      {
+        label: 'DISTINCT',
+        insertText: 'DISTINCT ',
+        detail: 'Unique values',
+        documentation: 'Return only distinct values'
+      }
+    )
+  }
+
+  // FROM 后可能的关键字
+  if (/\bFROM\s+\w+\s*$/i.test(textBeforeCursor)) {
+    keywords.push(
+      {
+        label: 'WHERE',
+        insertText: 'WHERE ',
+        detail: 'Filter condition',
+        documentation: 'Add filter conditions'
+      },
+      {
+        label: 'JOIN',
+        insertText: 'JOIN ',
+        detail: 'Inner join',
+        documentation: 'Join with another table'
+      },
+      {
+        label: 'LEFT JOIN',
+        insertText: 'LEFT JOIN ',
+        detail: 'Left outer join',
+        documentation: 'Left outer join with another table'
+      },
+      {
+        label: 'ORDER BY',
+        insertText: 'ORDER BY ',
+        detail: 'Sort results',
+        documentation: 'Sort the result set'
+      },
+      {
+        label: 'GROUP BY',
+        insertText: 'GROUP BY ',
+        detail: 'Group results',
+        documentation: 'Group rows by column values'
+      }
+    )
+  }
+
+  // WHERE 后的运算符
+  if (/\bWHERE\s+\w+\s*$/i.test(textBeforeCursor)) {
+    keywords.push(
+      {
+        label: '=',
+        insertText: '= ',
+        detail: 'Equals',
+        documentation: 'Equal comparison'
+      },
+      {
+        label: 'IN',
+        insertText: 'IN (',
+        detail: 'In list',
+        documentation: 'Value in list'
+      },
+      {
+        label: 'LIKE',
+        insertText: 'LIKE ',
+        detail: 'Pattern match',
+        documentation: 'Pattern matching with wildcards'
+      },
+      {
+        label: 'IS NULL',
+        insertText: 'IS NULL',
+        detail: 'Check null',
+        documentation: 'Check if value is null'
+      },
+      {
+        label: 'IS NOT NULL',
+        insertText: 'IS NOT NULL',
+        detail: 'Check not null',
+        documentation: 'Check if value is not null'
+      }
+    )
+  }
+
+  // JOIN 后的关键字
+  if (/\bJOIN\s+\w+\s*$/i.test(textBeforeCursor)) {
+    keywords.push({
+      label: 'ON',
+      insertText: 'ON ',
+      detail: 'Join condition',
+      documentation: 'Specify join condition'
+    })
+  }
+
+  // CTE 相关关键字
+  if (/^\s*$/i.test(textBeforeCursor) || /;\s*$/i.test(textBeforeCursor)) {
+    keywords.push({
+      label: 'WITH',
+      insertText: 'WITH ',
+      detail: 'Common Table Expression',
+      documentation: 'Create a Common Table Expression (CTE)'
+    })
+  }
+
+  return keywords
 }
 
 // 导出缓存管理功能

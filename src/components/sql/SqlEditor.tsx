@@ -364,12 +364,6 @@ const SqlEditor = forwardRef<SqlEditorRef, SqlEditorProps>(({
 
           checkTimeout()
 
-          // 使用 sqlparse 库进行分析
-          const tablesAndAliases = parseTablesAndAliases(fullText)
-          const sqlContext = analyzeSqlContext(textBeforeCursor)
-
-          checkTimeout()
-
           // 我们的 sqlparse 模块现在足够智能，可以直接调用它
           // 它会根据上下文自己判断该返回什么建议
           console.log('Monaco Provider: Calling generateDynamicSuggestions...');
@@ -378,7 +372,6 @@ const SqlEditor = forwardRef<SqlEditorRef, SqlEditorProps>(({
             textBeforeCursor,
             fullText,
             analyzeSqlContext(textBeforeCursor), // analyzeSqlContext 现在是 generateDynamicSuggestions 的一部分
-            [], // 这个参数已不再需要，传空数组即可
             createCompletionItem,
             range
           );
