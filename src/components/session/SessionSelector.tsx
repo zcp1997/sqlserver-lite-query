@@ -17,6 +17,12 @@ import {
   CommandList,
 } from '@/components/ui/command'
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
+import {
   Dialog,
   DialogContent,
   DialogHeader,
@@ -24,7 +30,7 @@ import {
   DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog'
-import { Database, Plus, X, Check, ChevronsUpDown } from 'lucide-react'
+import { Database, Plus, Check, ChevronsUpDown } from 'lucide-react'
 import ConnectionList from '@/components/connection/ConnectionList'
 import { ConnectionConfig } from '@/types/database'
 import { useToast } from '@/hooks/use-toast'
@@ -122,37 +128,47 @@ export default function SessionSelector() {
                 role="combobox"
                 aria-expanded={sessionComboOpen}
                 className="w-[280px] justify-between"
+                title={getActiveSessionDisplay()}
               >
-                {getActiveSessionDisplay()}
+                <span className="truncate">{getActiveSessionDisplay()}</span>
                 <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
               </Button>
             </PopoverTrigger>
-            <PopoverContent className="w-[280px] p-0">
+            <PopoverContent className="w-[400px] p-0">
               <Command>
                 <CommandInput placeholder="搜索数据库会话..." />
                 <CommandList>
                   <CommandEmpty>未找到会话。</CommandEmpty>
                   <CommandGroup>
                     {sessions.map((session) => (
-                      <CommandItem
-                        key={session.id}
-                        value={`${session.connectionName} - ${session.database}`}
-                        onSelect={() => {
-                          handleSessionChange(session.id)
-                          setSessionComboOpen(false)
-                        }}
-                      >
-                        <Check
-                          className={`mr-2 h-4 w-4 ${activeSession?.id === session.id ? "opacity-100 text-green-500" : "opacity-0"
-                            }`}
-                        />
-                        <div className="flex items-center">
-                          <Database className={`h-4 w-4 mr-2 ${activeSession?.id === session.id ? "text-green-500" : ""}`} />
-                          <span className={activeSession?.id === session.id ? "text-green-500 font-medium" : ""}>
-                            {session.connectionName} - {session.database}
-                          </span>
-                        </div>
-                      </CommandItem>
+                      <TooltipProvider key={session.id}>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <CommandItem
+                              value={`${session.connectionName} - ${session.database}`}
+                              onSelect={() => {
+                                handleSessionChange(session.id)
+                                setSessionComboOpen(false)
+                              }}
+                              className="cursor-pointer"
+                            >
+                              <Check
+                                className={`mr-2 h-4 w-4 shrink-0 ${activeSession?.id === session.id ? "opacity-100 text-green-500" : "opacity-0"
+                                  }`}
+                              />
+                              <div className="flex items-center min-w-0 flex-1">
+                                <Database className={`h-4 w-4 mr-2 shrink-0 ${activeSession?.id === session.id ? "text-green-500" : ""}`} />
+                                <span className={`${activeSession?.id === session.id ? "text-green-500 font-medium" : ""}`}>
+                                  {session.connectionName} - {session.database}
+                                </span>
+                              </div>
+                            </CommandItem>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p>{session.connectionName} - {session.database}</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
                     ))}
                   </CommandGroup>
                 </CommandList>
@@ -190,7 +206,7 @@ export default function SessionSelector() {
 
 
       <Dialog open={isNewSessionOpen} onOpenChange={setIsNewSessionOpen}>
-        <DialogContent className="sm:max-w-[800px]">
+        <DialogContent className="sm:max-w-[800px] max-h-[800px] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>创建新会话</DialogTitle>
             <DialogDescription>
