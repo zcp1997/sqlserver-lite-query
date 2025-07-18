@@ -63,7 +63,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
             </span>
             <span className="text-xs text-muted-foreground/70 flex items-center gap-1">
               <Sparkles className="h-3 w-3" />
-              v0.1.2
+              v0.1.3
             </span>
           </div>
         </div>

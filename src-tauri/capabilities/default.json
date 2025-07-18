@@ -7,6 +7,9 @@
     "core:default",
     "opener:default",
     "shell:allow-execute",
-    "shell:allow-spawn"
+    "shell:allow-spawn",
+    "dialog:default",
+    "fs:allow-read-text-file",
+    "fs:allow-read-file"
   ]
 }
