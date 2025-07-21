@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { DatabaseIcon, LogInIcon as LogsIcon, FileTextIcon, ChevronRight, CommandIcon, Sparkles } from "lucide-react"
+import { DatabaseIcon, LogInIcon as LogsIcon, FileTextIcon, ChevronRight, CommandIcon, Sparkles, Activity } from "lucide-react"
 import { usePathname, useRouter } from "next/navigation"
 import { cn } from "@/lib/utils"
 
@@ -32,6 +32,11 @@ const data = {
       url: "/logs",
       icon: LogsIcon,
     },
+    {
+      title: "连接可用性监控",
+      url: "/monitor",
+      icon: Activity,
+    },
   ],
 }
 
@@ -40,9 +45,9 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const router = useRouter()
   const [isHovered, setIsHovered] = React.useState<string | null>(null)
 
-  const menuHandler = (item: (typeof data.navMain)[0]) => {
+  const menuHandler = React.useCallback((item: (typeof data.navMain)[0]) => {
     router.push(item.url)
-  }
+  }, [router])
 
   return (
     <Sidebar
@@ -63,7 +68,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
             </span>
             <span className="text-xs text-muted-foreground/70 flex items-center gap-1">
               <Sparkles className="h-3 w-3" />
-              v0.1.3
+              v0.1.4
             </span>
           </div>
         </div>

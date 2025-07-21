@@ -18,6 +18,10 @@ export const pageMetadata: Record<string, Metadata> = {
     title: "SQL执行记录",
     description: "SQL执行记录"
   },
+  monitor: {
+    title: "连接可用性监控",
+    description: "实时监控SQL Server连接状态和性能"
+  },
 }
 
 export const getPageTitle = (path: string): string => {
